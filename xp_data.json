@@ -1,0 +1,35 @@
+{
+    "habits": {
+        "sleep on time": {
+            "xp": 10,
+            "active": true,
+            "goal": "General"
+        },
+        "meditate": {
+            "xp": 10,
+            "active": true,
+            "goal": "General"
+        },
+        "read 30 mins": {
+            "xp": 10,
+            "active": true,
+            "goal": "General"
+        }
+    },
+    "completions": {
+        "2025-11-30": [
+            "read 30 mins",
+            "sleep on time",
+            "meditate"
+        ],
+        "2025-12-01": [
+            "meditate",
+            "read 30 mins",
+            "sleep on time"
+        ]
+    },
+    "goals": [
+        "General"
+    ],
+    "tasks": []
+}
