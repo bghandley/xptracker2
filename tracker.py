@@ -5,6 +5,8 @@ import os
 import time
 import uuid
 from typing import Dict, List, Any
+import pandas as pd
+import plotly.express as px
 
 # --- Configuration & Constants ---
 st.set_page_config(
@@ -41,7 +43,9 @@ def load_data() -> Dict[str, Any]:
         "goals": ["General"], 
         "habits": {},         
         "tasks": [],          # List of task dicts
-        "completions": {}     
+        "completions": {},
+        "journal_sections": [],  # List of journal section names
+        "journal_entries": {}     # Dict: section_name -> list of entries
     }
     
     if not os.path.exists(DATA_FILE):
@@ -62,6 +66,12 @@ def load_data() -> Dict[str, Any]:
                 dirty = True
             if "tasks" not in data:
                 data["tasks"] = []
+                dirty = True
+            if "journal_sections" not in data:
+                data["journal_sections"] = []
+                dirty = True
+            if "journal_entries" not in data:
+                data["journal_entries"] = {}
                 dirty = True
             
             # Ensure habits have 'active' status and 'goal' link
@@ -93,6 +103,16 @@ def save_data(data: Dict[str, Any]) -> None:
 def get_date_str(offset: int = 0) -> str:
     d = datetime.date.today() + datetime.timedelta(days=offset)
     return d.isoformat()
+
+def get_week_range(week_offset: int = 0):
+    """Get start and end dates for a week (Monday to Sunday)"""
+    today = datetime.date.today()
+    # Calculate the start of the current week (Monday)
+    start_of_week = today - datetime.timedelta(days=today.weekday())
+    # Apply week offset
+    start_of_week += datetime.timedelta(weeks=week_offset)
+    end_of_week = start_of_week + datetime.timedelta(days=6)
+    return start_of_week, end_of_week
 
 def calculate_stats(data: Dict[str, Any]):
     habits = data.get("habits", {})
@@ -176,6 +196,50 @@ def get_rank(level: int) -> str:
             current_rank = title
     return current_rank
 
+def get_weekly_stats(data: Dict[str, Any], week_offset: int = 0):
+    """Calculate stats for a specific week"""
+    start_date, end_date = get_week_range(week_offset)
+    habits = data.get("habits", {})
+    completions = data.get("completions", {})
+    
+    weekly_data = {}
+    total_weekly_xp = 0
+    
+    # Initialize daily data
+    daily_stats = {}
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.isoformat()
+        day_name = current_date.strftime("%a")
+        daily_stats[date_str] = {"day_name": day_name, "xp": 0, "habits_completed": 0}
+        current_date += datetime.timedelta(days=1)
+    
+    # Calculate daily XP from habits
+    for habit, details in habits.items():
+        if not details.get("active", True):
+            continue
+        base_xp = details['xp']
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.isoformat()
+            if habit in completions.get(date_str, []):
+                daily_stats[date_str]["xp"] += base_xp
+                daily_stats[date_str]["habits_completed"] += 1
+                total_weekly_xp += base_xp
+            current_date += datetime.timedelta(days=1)
+    
+    # Calculate daily XP from tasks (completed during that week)
+    tasks = data.get("tasks", [])
+    for task in tasks:
+        if task.get("status") == "Done" and task.get("completed_at"):
+            completed_date = task["completed_at"][:10]
+            if start_date.isoformat() <= completed_date <= end_date.isoformat():
+                daily_stats[completed_date]["xp"] += task.get("xp", 0)
+                total_weekly_xp += task.get("xp", 0)
+    
+    return daily_stats, total_weekly_xp, start_date, end_date
+
 # --- UI Action Handlers ---
 
 def add_goal(goal_name: str):
@@ -257,6 +321,80 @@ def delete_task(task_id):
     data = load_data()
     data["tasks"] = [t for t in data["tasks"] if t["id"] != task_id]
     save_data(data)
+
+# --- Journal Actions ---
+
+def add_journal_section(section_name: str):
+    data = load_data()
+    if section_name and section_name not in data["journal_sections"]:
+        data["journal_sections"].append(section_name)
+        data["journal_entries"][section_name] = []
+        save_data(data)
+        st.success(f"Section Created: {section_name}")
+    elif section_name in data["journal_sections"]:
+        st.warning("Section already exists.")
+
+def delete_journal_section(section_name: str):
+    data = load_data()
+    if section_name in data["journal_sections"]:
+        data["journal_sections"].remove(section_name)
+        del data["journal_entries"][section_name]
+        save_data(data)
+        st.success(f"Section Deleted: {section_name}")
+
+def add_journal_entry(section_name: str, entry_text: str):
+    data = load_data()
+    if section_name in data["journal_sections"]:
+        new_entry = {
+            "id": str(uuid.uuid4()),
+            "date": datetime.datetime.now().isoformat(),
+            "text": entry_text
+        }
+        data["journal_entries"][section_name].append(new_entry)
+        save_data(data)
+        st.success("Entry saved!")
+
+def delete_journal_entry(section_name: str, entry_id: str):
+    data = load_data()
+    if section_name in data["journal_entries"]:
+        data["journal_entries"][section_name] = [
+            e for e in data["journal_entries"][section_name] if e["id"] != entry_id
+        ]
+        save_data(data)
+
+def export_data_to_csv(data: Dict[str, Any]):
+    """Export tracking data to CSV format"""
+    output = []
+    
+    # Habits Summary
+    output.append("HABITS SUMMARY\n")
+    output.append("Habit Name,XP Value,Active,Goal\n")
+    for habit_name, details in data["habits"].items():
+        active = "Yes" if details.get("active", True) else "No"
+        goal = details.get("goal", "General")
+        output.append(f"{habit_name},{details['xp']},{active},{goal}\n")
+    
+    output.append("\n")
+    
+    # Completions
+    output.append("DAILY COMPLETIONS\n")
+    output.append("Date,Habits Completed\n")
+    for date_str in sorted(data["completions"].keys()):
+        habits_list = "; ".join(data["completions"][date_str])
+        output.append(f"{date_str},{habits_list}\n")
+    
+    output.append("\n")
+    
+    # Tasks
+    output.append("TASKS\n")
+    output.append("Title,Goal,Priority,XP,Status,Due Date,Created Date\n")
+    for task in data["tasks"]:
+        created = task.get("created_at", "")[:10]
+        due = task.get("due_date", "")
+        title = task['title'].replace(",", ";")  # Escape commas in title
+        output.append(f"{title},{task.get('goal', 'General')},{task.get('priority', 'Low')},{task.get('xp', 0)},{task['status']},{due},{created}\n")
+    
+    return "".join(output)
 
 # --- Main App Layout ---
 
@@ -343,7 +481,7 @@ def main():
     st.markdown("---")
 
     # --- Tabs ---
-    tab_habits, tab_tasks = st.tabs(["📅 Daily Quests", "📜 Mission Log"])
+    tab_habits, tab_tasks, tab_journal, tab_reports = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -489,6 +627,206 @@ def main():
                             toggle_task_status(task['id'], "Todo")
                             st.rerun()
                         st.divider()
+
+    # === TAB 3: JOURNAL ===
+    with tab_journal:
+        st.header("📔 Journal & Practice")
+        
+        # Create New Section
+        with st.expander("➕ Create New Section"):
+            with st.form("new_section_form", clear_on_submit=True):
+                section_name = st.text_input("Section Name (e.g., Daily Reflections, Practice Questions)")
+                if st.form_submit_button("Create Section"):
+                    if section_name:
+                        add_journal_section(section_name)
+                        st.rerun()
+                    else:
+                        st.error("Section name is required.")
+        
+        # Display Sections
+        if not data["journal_sections"]:
+            st.info("No sections yet. Create one to get started!")
+        else:
+            for section in data["journal_sections"]:
+                with st.expander(f"📝 {section}", expanded=False):
+                    # Add Entry Form
+                    with st.form(f"entry_form_{section}", clear_on_submit=True):
+                        entry_text = st.text_area(
+                            "Write your entry...",
+                            placeholder="Share your thoughts, practice questions, or reflections...",
+                            height=150,
+                            key=f"textarea_{section}"
+                        )
+                        if st.form_submit_button("Save Entry", key=f"save_{section}"):
+                            if entry_text:
+                                add_journal_entry(section, entry_text)
+                                st.rerun()
+                            else:
+                                st.error("Entry cannot be empty.")
+                    
+                    st.divider()
+                    
+                    # Display Entries
+                    entries = data["journal_entries"].get(section, [])
+                    if entries:
+                        st.caption(f"📚 {len(entries)} entry(ies)")
+                        for entry in reversed(entries):  # Most recent first
+                            entry_date = entry["date"][:10]  # Extract date part
+                            entry_time = entry["date"][11:16]  # Extract time part
+                            
+                            with st.container():
+                                col_delete, col_date = st.columns([0.1, 0.9])
+                                with col_delete:
+                                    if st.button("🗑️", key=f"del_entry_{entry['id']}", help="Delete entry"):
+                                        delete_journal_entry(section, entry["id"])
+                                        st.rerun()
+                                with col_date:
+                                    st.caption(f"📅 {entry_date} at {entry_time}")
+                                
+                                st.write(entry["text"])
+                                st.divider()
+                    else:
+                        st.caption("No entries yet. Start writing!")
+                    
+                    # Delete Section Button
+                    if st.button(f"🗑️ Delete '{section}' Section", key=f"del_section_{section}"):
+                        delete_journal_section(section)
+                        st.rerun()
+
+    # === TAB 4: REPORTS ===
+    with tab_reports:
+        st.header("📊 Weekly Reports & Analytics")
+        
+        # Week Navigation
+        col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+        with col_nav1:
+            if st.button("⬅️ Previous Week"):
+                st.session_state.week_offset = st.session_state.get("week_offset", 0) - 1
+                st.rerun()
+        
+        with col_nav2:
+            week_offset = st.session_state.get("week_offset", 0)
+            if st.button("📅 This Week"):
+                st.session_state.week_offset = 0
+                st.rerun()
+            start, end = get_week_range(week_offset)
+            st.markdown(f"<h3 style='text-align: center;'>Week of {start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}</h3>", unsafe_allow_html=True)
+        
+        with col_nav3:
+            if st.button("Next Week ➡️"):
+                st.session_state.week_offset = st.session_state.get("week_offset", 0) + 1
+                st.rerun()
+        
+        st.divider()
+        
+        # Get weekly stats
+        week_offset = st.session_state.get("week_offset", 0)
+        daily_stats, total_weekly_xp, week_start, week_end = get_weekly_stats(data, week_offset)
+        
+        # Summary Cards
+        summary_col1, summary_col2, summary_col3 = st.columns(3)
+        with summary_col1:
+            st.metric("📈 Weekly XP", total_weekly_xp)
+        with summary_col2:
+            days_active = len([d for d in daily_stats.values() if d["xp"] > 0])
+            st.metric("🔥 Active Days", f"{days_active}/7")
+        with summary_col3:
+            avg_daily_xp = total_weekly_xp // 7 if total_weekly_xp > 0 else 0
+            st.metric("⭐ Avg Daily XP", avg_daily_xp)
+        
+        st.divider()
+        
+        # Charts
+        chart_col1, chart_col2 = st.columns(2)
+        
+        # Daily XP Chart
+        with chart_col1:
+            chart_data = []
+            for date_str in sorted(daily_stats.keys()):
+                day_info = daily_stats[date_str]
+                chart_data.append({
+                    "Day": day_info["day_name"] + " " + date_str.split("-")[2],
+                    "XP": day_info["xp"]
+                })
+            
+            df_daily = pd.DataFrame(chart_data)
+            fig_daily = px.bar(
+                df_daily,
+                x="Day",
+                y="XP",
+                title="Daily XP Earned",
+                color="XP",
+                color_continuous_scale="Viridis"
+            )
+            fig_daily.update_layout(height=400, showlegend=False)
+            st.plotly_chart(fig_daily, use_container_width=True)
+        
+        # Habits Completion Rate
+        with chart_col2:
+            active_habits = [h for h, d in data["habits"].items() if d.get("active", True)]
+            if active_habits:
+                habit_completions = {h: 0 for h in active_habits}
+                for date_str in daily_stats.keys():
+                    completed_habits = []
+                    # Get habits completed on this date
+                    if date_str in data["completions"]:
+                        for h in data["completions"][date_str]:
+                            if h in habit_completions:
+                                habit_completions[h] += 1
+                
+                habit_chart_data = [{"Habit": h, "Completions": habit_completions[h]} for h in active_habits]
+                df_habits = pd.DataFrame(habit_chart_data)
+                fig_habits = px.bar(
+                    df_habits,
+                    x="Habit",
+                    y="Completions",
+                    title="Habit Completion Rate (This Week)",
+                    color="Completions",
+                    color_continuous_scale="RdYlGn"
+                )
+                fig_habits.update_layout(height=400, showlegend=False)
+                st.plotly_chart(fig_habits, use_container_width=True)
+        
+        st.divider()
+        
+        # Detailed Daily Breakdown
+        st.subheader("📅 Daily Breakdown")
+        breakdown_data = []
+        for date_str in sorted(daily_stats.keys()):
+            day_info = daily_stats[date_str]
+            breakdown_data.append({
+                "Date": date_str,
+                "Day": day_info["day_name"],
+                "XP": day_info["xp"],
+                "Habits Completed": day_info["habits_completed"]
+            })
+        
+        df_breakdown = pd.DataFrame(breakdown_data)
+        st.dataframe(df_breakdown, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        
+        # Data Export
+        st.subheader("📥 Export Data")
+        export_col1, export_col2 = st.columns(2)
+        
+        with export_col1:
+            csv_data = export_data_to_csv(data)
+            st.download_button(
+                label="📊 Download as CSV",
+                data=csv_data,
+                file_name=f"xp_tracker_export_{datetime.date.today().isoformat()}.csv",
+                mime="text/csv"
+            )
+        
+        with export_col2:
+            json_data = json.dumps(data, indent=2)
+            st.download_button(
+                label="📋 Download as JSON",
+                data=json_data,
+                file_name=f"xp_tracker_export_{datetime.date.today().isoformat()}.json",
+                mime="application/json"
+            )
 
 if __name__ == "__main__":
     main()

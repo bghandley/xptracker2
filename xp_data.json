@@ -31,5 +31,7 @@
     "goals": [
         "General"
     ],
-    "tasks": []
+    "tasks": [],
+    "journal_sections": [],
+    "journal_entries": {}
 }
