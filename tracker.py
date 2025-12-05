@@ -504,6 +504,12 @@ def main():
     # --- Login / User Selection ---
     if 'user_id' not in st.session_state:
         st.session_state['user_id'] = "default"
+    
+    # Initialize authentication state
+    if 'authenticated_user' not in st.session_state:
+        st.session_state['authenticated_user'] = None
+    if 'admin_authenticated' not in st.session_state:
+        st.session_state['admin_authenticated'] = False
 
     with st.sidebar:
         st.title("👤 User Profile")
@@ -542,6 +548,7 @@ def main():
                         ok = storage.verify_user_password(username_input, password_input)
                         if ok:
                             st.session_state['user_id'] = username_input
+                            st.session_state['authenticated_user'] = username_input  # Set auth flag
                             st.success(f"Switched to user: {username_input}")
                             st.rerun()
                         else:
@@ -562,6 +569,7 @@ def main():
                         if password_input:
                             storage.set_user_password(username_input, password_input)
                         st.session_state['user_id'] = username_input
+                        st.session_state['authenticated_user'] = username_input  # Set auth flag
                         st.success(f"Created and switched to user: {username_input}")
                         st.rerun()
 
@@ -591,6 +599,18 @@ def main():
                             st.success(f'Reset link sent to {user_email}.')
                         else:
                             st.error('Failed to send reset email. Check SMTP settings.')
+
+        # Logout button
+        st.divider()
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        if is_authenticated:
+            if st.button("🚪 Logout"):
+                st.session_state['authenticated_user'] = None
+                st.session_state['admin_authenticated'] = False
+                st.success("Logged out successfully.")
+                st.rerun()
+        else:
+            st.info("💡 Log in above or view the Leaderboard tab (public)")
 
         st.divider()
 
@@ -683,6 +703,13 @@ def main():
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to view your daily quests.")
+            st.stop()
+        
         st.header(f"Daily Quests: {today_str}")
         
         active_habits_dict = {k: v for k, v in data["habits"].items() if v.get("active", True)}
@@ -751,6 +778,13 @@ def main():
 
     # === TAB 5: PROFILE & BADGES ===
     with tab_profile:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to view your profile.")
+            st.stop()
+        
         st.header("🏅 Your Achievements")
 
         st.subheader("🏆 Badges")
@@ -782,6 +816,13 @@ def main():
 
     # === TAB 2: TASKS ===
     with tab_tasks:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to view your missions.")
+            st.stop()
+        
         st.header("Mission Log")
         
         # Add Task Expander
@@ -863,6 +904,13 @@ def main():
 
     # === TAB 3: JOURNAL ===
     with tab_journal:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to view your journal.")
+            st.stop()
+        
         st.header("📔 Journal & Practice")
         
         # Create New Section
@@ -928,6 +976,13 @@ def main():
 
     # === TAB 4: REPORTS ===
     with tab_reports:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to view your reports.")
+            st.stop()
+        
         st.header("📊 Weekly Reports & Analytics")
         
         # Week Navigation
