@@ -1,12 +1,11 @@
 import streamlit as st
-import json
 import datetime
-import os
 import time
 import uuid
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import pandas as pd
 import plotly.express as px
+from storage import get_storage
 
 # --- Configuration & Constants ---
 st.set_page_config(
@@ -15,7 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-DATA_FILE = "xp_data.json"
 XP_PER_LEVEL = 200
 
 # Rank thresholds
@@ -33,72 +31,30 @@ PRIORITY_MAP = {
     "Low": "🔵"
 }
 
-# --- Data Management Functions ---
+# --- Data Management Wrappers ---
+
+def get_user_id():
+    """Retrieve the current user ID from session state or default."""
+    if 'user_id' not in st.session_state:
+        st.session_state['user_id'] = "default"
+    return st.session_state['user_id']
 
 def load_data() -> Dict[str, Any]:
-    """
-    Loads data. Migrates old data to include 'tasks' and other fields.
-    """
-    default_data = {
-        "goals": ["General"], 
-        "habits": {},         
-        "tasks": [],          # List of task dicts
-        "completions": {},
-        "journal_sections": [],  # List of journal section names
-        "journal_entries": {}     # Dict: section_name -> list of entries
-    }
-    
-    if not os.path.exists(DATA_FILE):
-        save_data(default_data)
-        return default_data
-    
-    try:
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-            
-            dirty = False
-            
-            # Ensure basic keys
-            if "habits" not in data: data["habits"] = {}
-            if "completions" not in data: data["completions"] = {}
-            if "goals" not in data: 
-                data["goals"] = ["General"]
-                dirty = True
-            if "tasks" not in data:
-                data["tasks"] = []
-                dirty = True
-            if "journal_sections" not in data:
-                data["journal_sections"] = []
-                dirty = True
-            if "journal_entries" not in data:
-                data["journal_entries"] = {}
-                dirty = True
-            
-            # Ensure habits have 'active' status and 'goal' link
-            for habit in data["habits"]:
-                if "active" not in data["habits"][habit]:
-                    data["habits"][habit]["active"] = True
-                    dirty = True
-                if "goal" not in data["habits"][habit]:
-                    data["habits"][habit]["goal"] = "General"
-                    dirty = True
-            
-            if dirty:
-                save_data(data)
-                
-            return data
-    except (json.JSONDecodeError, IOError):
-        st.error("Error reading data file. Using empty default.")
-        return default_data
+    return get_storage().load_data(get_user_id())
 
 def save_data(data: Dict[str, Any]) -> None:
-    try:
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=4)
-    except IOError as e:
-        st.error(f"Failed to save data: {e}")
+    get_storage().save_data(get_user_id(), data)
 
 # --- Core Logic ---
+
+BADGES_DEF = {
+    "week_streak": {"name": "🔥 On Fire", "desc": "7 Day Streak on any habit", "icon": "🔥"},
+    "month_streak": {"name": "⚡ Unstoppable", "desc": "30 Day Streak on any habit", "icon": "⚡"},
+    "habit_master": {"name": "🧘 Grandmaster", "desc": "Reach Level 3 on a habit", "icon": "🧘"},
+    "perfect_week": {"name": "🌟 Perfectionist", "desc": "7 Perfect Days", "icon": "🌟"},
+    "task_force": {"name": "📋 Task Force", "desc": "Complete 10 Missions", "icon": "📋"},
+    "veteran": {"name": "⚔️ Veteran", "desc": "Reach Level 10 Profile", "icon": "⚔️"}
+}
 
 def get_date_str(offset: int = 0) -> str:
     d = datetime.date.today() + datetime.timedelta(days=offset)
@@ -119,9 +75,14 @@ def calculate_stats(data: Dict[str, Any]):
     completions = data.get("completions", {})
     tasks = data.get("tasks", [])
     
-    habit_stats = {h: {'streak': 0, 'total_xp': 0} for h in habits}
+    habit_stats = {h: {'streak': 0, 'total_xp': 0, 'completions': 0, 'level': 1} for h in habits}
     global_xp = 0
+    perfect_days_count = 0
     
+    # Active habits count (approximation for perfect day logic)
+    active_habits = [h for h, d in habits.items() if d.get("active", True)]
+    active_count = len(active_habits)
+
     # 1. Historical XP Calculation (Habits)
     all_dates = sorted(list(completions.keys()))
     temp_streaks = {h: 0 for h in habits}
@@ -136,13 +97,20 @@ def calculate_stats(data: Dict[str, Any]):
             d_str = current_d.isoformat()
             days_completed = completions.get(d_str, [])
             
+            # Count daily completions
+            daily_habits_done = 0
+
             for habit, details in habits.items():
                 base_xp = details['xp']
                 
                 if habit in days_completed:
+                    daily_habits_done += 1
                     temp_streaks[habit] += 1
                     current_streak = temp_streaks[habit]
                     
+                    # Track total completions
+                    habit_stats[habit]['completions'] += 1
+
                     # Bonus: 10% per extra streak day
                     bonus_multiplier = 0.1 * (current_streak - 1)
                     if bonus_multiplier < 0: bonus_multiplier = 0
@@ -154,6 +122,19 @@ def calculate_stats(data: Dict[str, Any]):
                 else:
                     temp_streaks[habit] = 0
             
+            # Perfect Day Bonus (All active habits completed)
+            # Logic: Ensure ALL active habits are in the completion list for this day
+            if active_count > 0:
+                # Get set of active habit names
+                active_habit_names = {h for h, d in habits.items() if d.get("active", True)}
+                # Get set of completed habits for this day
+                completed_today = set(days_completed)
+
+                # Check if all active habits are completed
+                if active_habit_names.issubset(completed_today):
+                    global_xp += 50 # Bonus XP for perfect day
+                    perfect_days_count += 1
+
             current_d += delta
 
     # 2. Display Streak Calculation (Backward check)
@@ -176,12 +157,37 @@ def calculate_stats(data: Dict[str, Any]):
                     break
         habit_stats[habit]['streak'] = streak
 
+        # Calculate Level (Simple: Level up every 30 completions)
+        habit_stats[habit]['level'] = 1 + (habit_stats[habit]['completions'] // 30)
+
     # 3. Task XP Calculation
+    completed_tasks_count = 0
     for task in tasks:
         if task.get("status") == "Done":
             global_xp += task.get("xp", 0)
+            completed_tasks_count += 1
 
-    return global_xp, habit_stats
+    # 4. Badges Calculation
+    earned_badges = []
+
+    # Streak Badges
+    max_streak = 0
+    for h in habits:
+        s = habit_stats[h]['streak']
+        if s > max_streak: max_streak = s
+        if habit_stats[h]['level'] >= 3:
+            earned_badges.append("habit_master")
+
+    if max_streak >= 7: earned_badges.append("week_streak")
+    if max_streak >= 30: earned_badges.append("month_streak")
+
+    if perfect_days_count >= 7: earned_badges.append("perfect_week")
+    if completed_tasks_count >= 10: earned_badges.append("task_force")
+
+    # Profile Level Badge (calculated outside, but we can check xp)
+    # We'll handle veteran in the main loop or pass level in
+
+    return global_xp, habit_stats, list(set(earned_badges))
 
 def calculate_level(total_xp: int):
     level = 1 + (total_xp // XP_PER_LEVEL)
@@ -399,12 +405,27 @@ def export_data_to_csv(data: Dict[str, Any]):
 # --- Main App Layout ---
 
 def main():
+    # --- Login / User Selection ---
+    if 'user_id' not in st.session_state:
+        st.session_state['user_id'] = "default"
+
+    with st.sidebar:
+        st.title("👤 User Profile")
+        user_input = st.text_input("Username (Enter to switch)", value=st.session_state['user_id'])
+        if user_input != st.session_state['user_id']:
+            st.session_state['user_id'] = user_input
+            st.rerun()
+        st.divider()
+
     data = load_data()
     today_str = get_date_str(0)
     
-    global_xp, habit_stats = calculate_stats(data)
+    global_xp, habit_stats, earned_badges = calculate_stats(data)
     current_level, xp_in_level, level_progress = calculate_level(global_xp)
     current_rank = get_rank(current_level)
+
+    if current_level >= 10 and "veteran" not in earned_badges:
+        earned_badges.append("veteran")
 
     # --- Celebration Logic ---
     if 'previous_level' not in st.session_state:
@@ -481,7 +502,7 @@ def main():
     st.markdown("---")
 
     # --- Tabs ---
-    tab_habits, tab_tasks, tab_journal, tab_reports = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports"])
+    tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -498,6 +519,7 @@ def main():
                 is_completed = habit_name in data["completions"].get(today_str, [])
                 current_streak = habit_stats[habit_name]['streak']
                 total_habit_xp = habit_stats[habit_name]['total_xp']
+                habit_level = habit_stats[habit_name]['level']
                 habit_goal = details.get("goal", "General")
                 
                 c1, c2, c3, c4 = st.columns([0.5, 3, 1, 1])
@@ -514,8 +536,9 @@ def main():
                         st.rerun()
 
                 with c2:
+                    level_badge = f"<span style='background-color:#FFD700; color:#000; padding:1px 4px; border-radius:3px; font-weight:bold; font-size:0.75em'>Lvl {habit_level}</span>" if habit_level > 1 else ""
                     st.markdown(
-                        f"**{habit_name}** <span style='background-color:#f0f2f6; color:#31333f; padding:2px 6px; border-radius:4px; font-size:0.75em'>{habit_goal}</span> <span style='color:gray; font-size:0.8em'>({details['xp']} XP)</span>", 
+                        f"**{habit_name}** {level_badge} <br> <span style='background-color:#f0f2f6; color:#31333f; padding:2px 6px; border-radius:4px; font-size:0.75em'>{habit_goal}</span> <span style='color:gray; font-size:0.8em'>({details['xp']} XP)</span>",
                         unsafe_allow_html=True
                     )
                     
@@ -540,12 +563,45 @@ def main():
                 summary_data.append({
                     "Habit": h,
                     "Goal": data["habits"][h].get("goal", "General"),
+                    "Level": habit_stats[h]['level'],
                     "Status": status,
                     "Base XP": data["habits"][h]["xp"],
                     "Current Streak": habit_stats[h]['streak'],
-                    "Total XP": habit_stats[h]['total_xp']
+                    "Total XP": habit_stats[h]['total_xp'],
+                    "Total Completions": habit_stats[h]['completions']
                 })
             st.dataframe(summary_data, use_container_width=True)
+
+    # === TAB 5: PROFILE & BADGES ===
+    with tab_profile:
+        st.header("🏅 Your Achievements")
+
+        st.subheader("🏆 Badges")
+
+        if not earned_badges:
+            st.info("No badges yet. Keep training!")
+        else:
+            cols = st.columns(4)
+            for i, badge_id in enumerate(earned_badges):
+                if badge_id in BADGES_DEF:
+                    badge = BADGES_DEF[badge_id]
+                    with cols[i % 4]:
+                        st.markdown(
+                            f"""
+                            <div style="text-align:center; border: 1px solid #ddd; padding: 10px; border-radius: 10px; background-color: #fafafa;">
+                                <div style="font-size: 3em;">{badge['icon']}</div>
+                                <div style="font-weight: bold; margin-top: 5px;">{badge['name']}</div>
+                                <div style="font-size: 0.8em; color: gray;">{badge['desc']}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+        st.divider()
+        st.subheader("📊 Career Stats")
+        st.write(f"**Current Level:** {current_level}")
+        st.write(f"**Total XP:** {global_xp}")
+        st.write(f"**Rank:** {current_rank}")
 
     # === TAB 2: TASKS ===
     with tab_tasks:
