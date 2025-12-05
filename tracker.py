@@ -7,6 +7,9 @@ from typing import Dict, List, Any, Tuple
 import pandas as pd
 import plotly.express as px
 from storage import get_storage
+from email_utils import send_email
+import urllib.parse
+import os
 
 # --- Configuration & Constants ---
 st.set_page_config(
@@ -406,16 +409,104 @@ def export_data_to_csv(data: Dict[str, Any]):
 # --- Main App Layout ---
 
 def main():
+    # --- Password reset via link handler ---
+    params = st.experimental_get_query_params()
+    reset_user = params.get('reset_user', [None])[0]
+    reset_token = params.get('token', [None])[0]
+    if reset_user and reset_token:
+        st.title('Password Reset')
+        st.write(f"Resetting password for: **{reset_user}**")
+        new_pw = st.text_input('New password', type='password')
+        confirm_pw = st.text_input('Confirm new password', type='password')
+        if st.button('Set New Password'):
+            storage = get_storage()
+            ok = storage.verify_and_consume_reset_token(reset_user, reset_token)
+            if not ok:
+                st.error('Invalid or expired reset token.')
+            else:
+                if not new_pw:
+                    st.error('Password cannot be empty.')
+                elif new_pw != confirm_pw:
+                    st.error('Passwords do not match.')
+                else:
+                    storage.set_user_password(reset_user, new_pw)
+                    st.success('Password updated. You can now login.')
+                    st.stop()
+
     # --- Login / User Selection ---
     if 'user_id' not in st.session_state:
         st.session_state['user_id'] = "default"
 
     with st.sidebar:
         st.title("👤 User Profile")
-        user_input = st.text_input("Username (Enter to switch)", value=st.session_state['user_id'])
-        if user_input != st.session_state['user_id']:
-            st.session_state['user_id'] = user_input
-            st.rerun()
+
+        username_input = st.text_input("Username", value=st.session_state['user_id'])
+        password_input = st.text_input("Password", type="password")
+
+        # Action buttons: Login / Create
+        col_a, col_b = st.columns(2)
+        storage = get_storage()
+
+        with col_a:
+            if st.button("Login / Switch"):
+                if not username_input or username_input.strip() == "":
+                    st.error("Enter a username to login.")
+                else:
+                    # Check existence first
+                    if storage.user_exists(username_input):
+                        ok = storage.verify_user_password(username_input, password_input)
+                        if ok:
+                            st.session_state['user_id'] = username_input
+                            st.success(f"Switched to user: {username_input}")
+                            st.rerun()
+                        else:
+                            st.error("Invalid password for user.")
+                    else:
+                        st.warning("User not found. Use 'Create New' to make a new user.")
+
+        with col_b:
+            if st.button("Create New User"):
+                if not username_input or username_input.strip() == "":
+                    st.error("Enter a username to create.")
+                else:
+                    if storage.user_exists(username_input):
+                        st.warning("User already exists. Try logging in.")
+                    else:
+                        # Create user by loading data (LocalStorage will create file)
+                        storage.load_data(username_input)
+                        if password_input:
+                            storage.set_user_password(username_input, password_input)
+                        st.session_state['user_id'] = username_input
+                        st.success(f"Created and switched to user: {username_input}")
+                        st.rerun()
+
+        # Forgot password flow
+        if st.button('Forgot Password'):
+            if not username_input or username_input.strip() == '':
+                st.error('Enter your username to request a reset link.')
+            else:
+                user_email = storage.get_user_email(username_input)
+                if not user_email:
+                    st.error('No email on file for that user. Please set an email in Profile first.')
+                else:
+                    token = storage.create_password_reset_token(username_input)
+                    if not token:
+                        st.error('Failed to create reset token (user may not exist).')
+                    else:
+                        app_url = None
+                        if hasattr(st, 'secrets') and st.secrets.get('app'):
+                            app_url = st.secrets.get('app', {}).get('url')
+                        app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
+                        params = {'reset_user': username_input, 'token': token}
+                        reset_link = app_url + '/?' + urllib.parse.urlencode(params)
+                        subject = 'XP Tracker Password Reset'
+                        body = f'Hello {username_input},\n\nA request was made to reset your password. If you requested this, open the link below and set a new password. The link will expire in one hour.\n\n{reset_link}\n\nIf you did not request this, ignore this email.'
+                        ok = send_email(user_email, subject, body)
+                        if ok:
+                            st.success(f'Reset link sent to {user_email}.')
+                        else:
+                            st.error('Failed to send reset email. Check SMTP settings.')
+
         st.divider()
 
     data = load_data()
