@@ -42,6 +42,18 @@ class StorageProvider:
     def verify_user_password(self, user_id: str, password: str) -> bool:
         raise NotImplementedError
 
+    def set_user_email(self, user_id: str, email: Optional[str]) -> None:
+        raise NotImplementedError
+
+    def get_user_email(self, user_id: str) -> Optional[str]:
+        raise NotImplementedError
+
+    def create_password_reset_token(self, user_id: str, expires_in: int = 3600) -> Optional[str]:
+        raise NotImplementedError
+
+    def verify_and_consume_reset_token(self, user_id: str, token: str) -> bool:
+        raise NotImplementedError
+
 def sanitize_user_id(user_id: str) -> str:
     """Sanitize user_id to prevent path traversal or invalid keys."""
     if not user_id:
