@@ -1378,6 +1378,85 @@ def main():
         else:
             st.info("No users found.")
         
+        # --- Notification Triggers (Admin) ---
+        st.divider()
+        st.subheader("📣 Notification Triggers (Admin)")
+        if all_users:
+            target_user = st.selectbox("Select user to notify", options=all_users, key="admin_notify_user")
+            notif_type = st.selectbox("Notification type", options=["streak_milestone", "missed_day", "level_up", "badge_earned", "weekly_summary", "personalized_coaching"], key="admin_notif_type")
+
+            # Dynamic fields
+            if notif_type == "streak_milestone":
+                habit_name = st.text_input("Habit Name", value="Daily Practice")
+                streak_val = st.number_input("Streak (days)", min_value=1, value=5)
+                xp_val = st.number_input("XP Earned", min_value=0, value=50)
+                if st.button("Send Streak Milestone"):
+                    ok = notifications.notify_streak_milestone(target_user, habit_name, int(streak_val), int(xp_val))
+                    if ok:
+                        st.success("Streak milestone notification sent")
+                    else:
+                        st.error("Failed to send streak notification (check email or history)")
+
+            elif notif_type == "missed_day":
+                habit_name = st.text_input("Habit Name", value="Daily Practice")
+                days_missed = st.number_input("Days Missed", min_value=1, value=1)
+                last_streak = st.number_input("Previous Streak", min_value=0, value=7)
+                if st.button("Send Missed Day Encouragement"):
+                    ok = notifications.notify_missed_day(target_user, habit_name, int(days_missed), int(last_streak))
+                    if ok:
+                        st.success("Missed day encouragement sent")
+                    else:
+                        st.error("Failed to send missed-day notification")
+
+            elif notif_type == "level_up":
+                new_level = st.number_input("New Level", min_value=1, value=2)
+                total_xp = st.number_input("Total XP", min_value=0, value=500)
+                if st.button("Send Level Up Notification"):
+                    ok = notifications.notify_level_up(target_user, int(new_level), int(total_xp))
+                    if ok:
+                        st.success("Level up notification sent")
+                    else:
+                        st.error("Failed to send level-up notification")
+
+            elif notif_type == "badge_earned":
+                badge_name = st.text_input("Badge Name", value="Consistency")
+                badge_desc = st.text_area("Badge Description", value="Completed 30 days in a row")
+                if st.button("Send Badge Notification"):
+                    ok = notifications.notify_badge_earned(target_user, badge_name, badge_desc)
+                    if ok:
+                        st.success("Badge notification sent")
+                    else:
+                        st.error("Failed to send badge notification")
+
+            elif notif_type == "weekly_summary":
+                completed_count = st.number_input("Completed This Week", min_value=0, value=5)
+                total_habits = st.number_input("Total Habits", min_value=1, value=7)
+                xp_earned = st.number_input("XP Earned This Week", min_value=0, value=350)
+                top_habit = st.text_input("Top Habit (optional)", value="")
+                if st.button("Send Weekly Summary"):
+                    ok = notifications.notify_weekly_summary(target_user, int(completed_count), int(total_habits), int(xp_earned), top_habit or None)
+                    if ok:
+                        st.success("Weekly summary sent")
+                    else:
+                        st.error("Failed to send weekly summary")
+
+            elif notif_type == "personalized_coaching":
+                st.write("Provide a small JSON context object for the user (e.g., levels, streaks, top habits)")
+                context_raw = st.text_area("Context JSON", value='{"level": 3, "total_xp": 650, "top_habit": "Meditation", "streaks": {"Meditation": 5}}')
+                if st.button("Send Personalized Coaching"):
+                    try:
+                        ctx = json.loads(context_raw)
+                    except Exception as e:
+                        st.error(f"Invalid JSON: {e}")
+                        ctx = None
+                    if ctx is not None:
+                        ok = notifications.notify_personalized_coaching(target_user, ctx)
+                        if ok:
+                            st.success("Personalized coaching sent")
+                        else:
+                            st.error("Failed to send personalized coaching")
+
+        
         # Edit user details
         if 'admin_edit_user' in st.session_state:
             edit_user = st.session_state['admin_edit_user']
