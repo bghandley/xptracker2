@@ -250,6 +250,59 @@ def get_weekly_stats(data: Dict[str, Any], week_offset: int = 0):
     
     return daily_stats, total_weekly_xp, start_date, end_date
 
+def get_leaderboard_stats(time_period: str = "all_time") -> List[tuple]:
+    """Calculate XP for all users for a given time period.
+    Returns list of (user_id, total_xp) sorted by XP descending.
+    time_period: "all_time", "week", "month", "year"
+    """
+    users = get_existing_users()
+    leaderboard = []
+    
+    now = datetime.date.today()
+    if time_period == "week":
+        start_date = now - datetime.timedelta(days=now.weekday())
+    elif time_period == "month":
+        start_date = now.replace(day=1)
+    elif time_period == "year":
+        start_date = now.replace(month=1, day=1)
+    else:  # all_time
+        start_date = None
+    
+    for user_id in users:
+        storage = get_storage()
+        user_data = storage.load_data(user_id)
+        global_xp, _, _ = calculate_stats(user_data)
+        
+        # If filtering by time period, recalculate XP for that period only
+        if start_date:
+            habits = user_data.get("habits", {})
+            completions = user_data.get("completions", {})
+            tasks = user_data.get("tasks", [])
+            period_xp = 0
+            
+            # Calculate habit XP for period
+            for date_str in completions.keys():
+                date_obj = datetime.date.fromisoformat(date_str)
+                if date_obj >= start_date:
+                    for habit_name in completions[date_str]:
+                        if habit_name in habits:
+                            period_xp += habits[habit_name].get("xp", 0)
+            
+            # Calculate task XP for period
+            for task in tasks:
+                if task.get("status") == "Done" and task.get("completed_at"):
+                    completed_date = datetime.date.fromisoformat(task["completed_at"][:10])
+                    if completed_date >= start_date:
+                        period_xp += task.get("xp", 0)
+            
+            global_xp = period_xp
+        
+        leaderboard.append((user_id, global_xp))
+    
+    # Sort by XP descending
+    leaderboard.sort(key=lambda x: x[1], reverse=True)
+    return leaderboard
+
 # --- UI Action Handlers ---
 
 def add_goal(goal_name: str):
@@ -406,6 +459,21 @@ def export_data_to_csv(data: Dict[str, Any]):
     
     return "".join(output)
 
+# --- Helper: List existing users ---
+def get_existing_users() -> List[str]:
+    """Scan for existing user data files and return list of user IDs."""
+    import glob
+    users = []
+    # Check for default user
+    if os.path.exists("xp_data.json"):
+        users.append("default")
+    # Check for named users
+    for file in glob.glob("xp_data_*.json"):
+        # Extract user ID from filename: xp_data_alice.json -> alice
+        user_id = file.replace("xp_data_", "").replace(".json", "")
+        users.append(user_id)
+    return sorted(users)
+
 # --- Main App Layout ---
 
 def main():
@@ -440,6 +508,23 @@ def main():
     with st.sidebar:
         st.title("👤 User Profile")
 
+        # Dropdown to select existing user
+        existing_users = get_existing_users()
+        if existing_users:
+            st.subheader("Existing Users")
+            selected_user = st.selectbox(
+                "Pick a user",
+                options=existing_users,
+                index=existing_users.index(st.session_state['user_id']) if st.session_state['user_id'] in existing_users else 0,
+                key="user_dropdown"
+            )
+            if st.button("📂 Load Selected User"):
+                st.session_state['user_id'] = selected_user
+                st.success(f"Switched to user: {selected_user}")
+                st.rerun()
+            st.divider()
+
+        st.subheader("Login / Create Account")
         username_input = st.text_input("Username", value=st.session_state['user_id'])
         password_input = st.text_input("Password", type="password")
 
@@ -594,7 +679,7 @@ def main():
     st.markdown("---")
 
     # --- Tabs ---
-    tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges"])
+    tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -975,6 +1060,207 @@ def main():
                 file_name=f"xp_tracker_export_{datetime.date.today().isoformat()}.json",
                 mime="application/json"
             )
+
+    # === TAB 6: LEADERBOARD ===
+    with tab_leaderboard:
+        st.header("🏆 Leaderboard")
+        
+        # Time period filter
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            if st.button("📊 All-Time"):
+                st.session_state['lb_period'] = "all_time"
+        with col2:
+            if st.button("📅 This Week"):
+                st.session_state['lb_period'] = "week"
+        with col3:
+            if st.button("📆 This Month"):
+                st.session_state['lb_period'] = "month"
+        with col4:
+            if st.button("📋 This Year"):
+                st.session_state['lb_period'] = "year"
+        with col5:
+            period_select = st.selectbox("Or select:", ["all_time", "week", "month", "year"], key="lb_period_select")
+            st.session_state['lb_period'] = period_select
+        
+        period = st.session_state.get('lb_period', 'all_time')
+        
+        # Get leaderboard
+        leaderboard = get_leaderboard_stats(period)
+        
+        if not leaderboard:
+            st.info("No users or XP data yet.")
+        else:
+            # Display leaderboard
+            st.subheader(f"Top Players ({period.replace('_', ' ').title()})")
+            
+            # Create leaderboard display
+            medals = ["🥇", "🥈", "🥉"]
+            
+            for rank, (user_id, xp) in enumerate(leaderboard, 1):
+                medal = medals[rank - 1] if rank <= 3 else f"{rank}️⃣"
+                
+                # Get user level
+                user_storage = get_storage()
+                user_data = user_storage.load_data(user_id)
+                _, _, level_progress = calculate_level(xp)
+                user_level, _, _ = calculate_level(xp)
+                
+                # Display rank
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
+                    with col1:
+                        st.markdown(f"# {medal}")
+                    with col2:
+                        st.write(f"**{user_id}**")
+                    with col3:
+                        st.metric("Level", user_level)
+                    with col4:
+                        st.metric("XP", f"{xp:,}")
+                    
+                    # Progress bar
+                    st.progress(level_progress)
+            
+            # Detailed table
+            st.divider()
+            st.subheader("Detailed Standings")
+            
+            table_data = []
+            for rank, (user_id, xp) in enumerate(leaderboard, 1):
+                user_storage = get_storage()
+                user_data = user_storage.load_data(user_id)
+                user_level, _, _ = calculate_level(xp)
+                user_email = user_storage.get_user_email(user_id)
+                
+                table_data.append({
+                    "Rank": rank,
+                    "Player": user_id,
+                    "Email": user_email or "-",
+                    "Level": user_level,
+                    "Total XP": f"{xp:,}"
+                })
+            
+            df_leaderboard = pd.DataFrame(table_data)
+            st.dataframe(df_leaderboard, use_container_width=True, hide_index=True)
+            
+            # Stats summary
+            st.divider()
+            st.subheader("📊 Leaderboard Stats")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Players", len(leaderboard))
+            with col2:
+                top_xp = leaderboard[0][1] if leaderboard else 0
+                st.metric("Top Player XP", f"{top_xp:,}")
+            with col3:
+                avg_xp = sum([xp for _, xp in leaderboard]) // len(leaderboard) if leaderboard else 0
+                st.metric("Average XP", f"{avg_xp:,}")
+
+    # === TAB 7: ADMIN ===
+    with tab_admin:
+        st.header("⚙️ Admin Management")
+        
+        # Admin authentication
+        admin_passphrase = os.environ.get("ADMIN_PASSPHRASE") or (st.secrets.get("admin_passphrase") if hasattr(st, 'secrets') else None)
+        
+        if not admin_passphrase:
+            st.warning("⚠️ Admin panel disabled: ADMIN_PASSPHRASE not set. Set environment variable or st.secrets['admin_passphrase'].")
+            st.stop()
+        
+        # Authenticate admin
+        if 'admin_authenticated' not in st.session_state:
+            st.session_state['admin_authenticated'] = False
+        
+        if not st.session_state['admin_authenticated']:
+            st.subheader("🔐 Admin Authentication")
+            admin_pass = st.text_input("Admin Passphrase", type="password")
+            if st.button("Unlock Admin Panel"):
+                if admin_pass == admin_passphrase:
+                    st.session_state['admin_authenticated'] = True
+                    st.success("Admin panel unlocked!")
+                    st.rerun()
+                else:
+                    st.error("Incorrect passphrase.")
+            st.stop()
+        
+        # Admin panel unlocked
+        st.success("✅ Admin panel unlocked")
+        
+        if st.button("🔒 Lock Admin Panel"):
+            st.session_state['admin_authenticated'] = False
+            st.rerun()
+        
+        st.divider()
+        
+        # User management
+        st.subheader("👥 User Management")
+        all_users = get_existing_users()
+        st.write(f"Total users: **{len(all_users)}**")
+        
+        # Display users
+        if all_users:
+            st.write("Existing users:")
+            for user in all_users:
+                user_email = storage.get_user_email(user)
+                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+                with col1:
+                    st.write(f"👤 {user}")
+                with col2:
+                    st.caption(f"📧 {user_email or '(no email)'}")
+                with col3:
+                    if st.button("✏️ Edit", key=f"edit_{user}"):
+                        st.session_state['admin_edit_user'] = user
+                with col4:
+                    if st.button("🗑️ Delete", key=f"delete_{user}"):
+                        # Confirm delete
+                        if st.checkbox(f"Confirm delete {user}?", key=f"confirm_delete_{user}"):
+                            import glob
+                            for file in glob.glob(f"xp_data_{user}.json") + glob.glob("xp_data.json" if user == "default" else ""):
+                                try:
+                                    os.remove(file)
+                                    st.success(f"Deleted user: {user}")
+                                except Exception as e:
+                                    st.error(f"Failed to delete: {e}")
+                st.divider()
+        else:
+            st.info("No users found.")
+        
+        # Edit user details
+        if 'admin_edit_user' in st.session_state:
+            edit_user = st.session_state['admin_edit_user']
+            st.subheader(f"Edit: {edit_user}")
+            
+            # Get current email
+            current_email = storage.get_user_email(edit_user)
+            new_email = st.text_input("Email", value=current_email or "")
+            
+            # Password reset
+            reset_pw_opt = st.radio("Password action", ["None", "Set new password", "Clear password"])
+            if reset_pw_opt == "Set new password":
+                new_pw = st.text_input("New password", type="password", key="admin_new_pw")
+                confirm_pw = st.text_input("Confirm password", type="password", key="admin_confirm_pw")
+                if st.button(f"Set Password for {edit_user}"):
+                    if new_pw != confirm_pw:
+                        st.error("Passwords do not match.")
+                    elif not new_pw:
+                        st.error("Password cannot be empty.")
+                    else:
+                        storage.set_user_password(edit_user, new_pw)
+                        st.success(f"Password set for {edit_user}")
+            elif reset_pw_opt == "Clear password":
+                if st.button(f"Clear Password for {edit_user}"):
+                    storage.set_user_password(edit_user, "")
+                    st.success(f"Password cleared for {edit_user} (passwordless login)")
+            
+            # Save email
+            if st.button(f"Save Email for {edit_user}"):
+                storage.set_user_email(edit_user, new_email or None)
+                st.success(f"Email saved for {edit_user}")
+            
+            if st.button("Done editing"):
+                del st.session_state['admin_edit_user']
+                st.rerun()
 
 if __name__ == "__main__":
     main()
