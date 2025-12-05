@@ -1068,16 +1068,16 @@ def main():
         # Time period filter
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            if st.button("📊 All-Time"):
+            if st.button("📊 All-Time", key="lb_all_time"):
                 st.session_state['lb_period'] = "all_time"
         with col2:
-            if st.button("📅 This Week"):
+            if st.button("📅 This Week", key="lb_this_week"):
                 st.session_state['lb_period'] = "week"
         with col3:
-            if st.button("📆 This Month"):
+            if st.button("📆 This Month", key="lb_this_month"):
                 st.session_state['lb_period'] = "month"
         with col4:
-            if st.button("📋 This Year"):
+            if st.button("📋 This Year", key="lb_this_year"):
                 st.session_state['lb_period'] = "year"
         with col5:
             period_select = st.selectbox("Or select:", ["all_time", "week", "month", "year"], key="lb_period_select")
