@@ -54,6 +54,46 @@ class StorageProvider:
     def verify_and_consume_reset_token(self, user_id: str, token: str) -> bool:
         raise NotImplementedError
 
+def validate_email(email: str) -> tuple[bool, str]:
+    """
+    Validate email format.
+    Returns: (is_valid: bool, message: str)
+    """
+    if not email or not email.strip():
+        return False, "Email cannot be empty"
+    
+    email = email.strip().lower()
+    
+    # Check for consecutive dots
+    if '..' in email:
+        return False, "Email cannot contain consecutive dots"
+    
+    # Check if starts or ends with dot
+    if email.startswith('.') or email.endswith('.'):
+        return False, "Email cannot start or end with a dot"
+    
+    # Basic regex for email validation (RFC 5322 simplified)
+    # Local part: alphanumeric, dots, underscores, hyphens, plus signs
+    # Domain: alphanumeric, dots, hyphens; no leading/trailing dots
+    email_pattern = r'^[a-z0-9!#$%&\'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$'
+    
+    if not re.match(email_pattern, email):
+        return False, "Invalid email format (e.g., user@example.com)"
+    
+    # Additional checks
+    if len(email) > 254:
+        return False, "Email too long (max 254 characters)"
+    
+    local_part = email.split('@')[0]
+    if len(local_part) > 64:
+        return False, "Email local part too long (max 64 characters)"
+    
+    domain_part = email.split('@')[1]
+    if domain_part.startswith('.') or domain_part.endswith('.'):
+        return False, "Domain cannot start or end with a dot"
+    
+    return True, "Valid email"
+
 def sanitize_user_id(user_id: str) -> str:
     """Sanitize user_id to prevent path traversal or invalid keys."""
     if not user_id:

@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, List, Any, Tuple
 import pandas as pd
 import plotly.express as px
-from storage import get_storage
+from storage import get_storage, validate_email
 from email_utils import send_email
 import urllib.parse
 import os
@@ -533,6 +533,7 @@ def main():
         st.subheader("Login / Create Account")
         username_input = st.text_input("Username", value=st.session_state['user_id'])
         password_input = st.text_input("Password", type="password")
+        email_input = st.text_input("Email (optional)", placeholder="your-email@example.com")
 
         # Action buttons: Login / Create
         col_a, col_b = st.columns(2)
@@ -564,14 +565,32 @@ def main():
                     if storage.user_exists(username_input):
                         st.warning("User already exists. Try logging in.")
                     else:
-                        # Create user by loading data (LocalStorage will create file)
-                        storage.load_data(username_input)
-                        if password_input:
-                            storage.set_user_password(username_input, password_input)
-                        st.session_state['user_id'] = username_input
-                        st.session_state['authenticated_user'] = username_input  # Set auth flag
-                        st.success(f"Created and switched to user: {username_input}")
-                        st.rerun()
+                        # Validate email if provided
+                        if email_input and email_input.strip():
+                            is_valid, msg = validate_email(email_input)
+                            if not is_valid:
+                                st.error(f"Invalid email: {msg}")
+                            else:
+                                # Create user by loading data (LocalStorage will create file)
+                                storage.load_data(username_input)
+                                if password_input:
+                                    storage.set_user_password(username_input, password_input)
+                                storage.set_user_email(username_input, email_input.strip())
+                                st.session_state['user_id'] = username_input
+                                st.session_state['authenticated_user'] = username_input  # Set auth flag
+                                st.success(f"Created and switched to user: {username_input}")
+                                st.info(f"Email saved: {email_input}")
+                                st.rerun()
+                        else:
+                            # Create user without email
+                            storage.load_data(username_input)
+                            if password_input:
+                                storage.set_user_password(username_input, password_input)
+                            st.session_state['user_id'] = username_input
+                            st.session_state['authenticated_user'] = username_input  # Set auth flag
+                            st.success(f"Created and switched to user: {username_input}")
+                            st.info("💡 You can add email later in your Profile")
+                            st.rerun()
 
         # Forgot password flow
         if st.button('Forgot Password'):
@@ -813,6 +832,32 @@ def main():
         st.write(f"**Current Level:** {current_level}")
         st.write(f"**Total XP:** {global_xp}")
         st.write(f"**Rank:** {current_rank}")
+
+        st.divider()
+        st.subheader("📧 Email Settings")
+        
+        current_user = st.session_state.get('user_id', 'unknown')
+        storage = get_storage()
+        current_email = storage.get_user_email(current_user)
+        
+        if current_email:
+            st.write(f"**Current Email:** {current_email}")
+        else:
+            st.info("No email set yet")
+        
+        with st.expander("✏️ Add or Update Email"):
+            new_email = st.text_input("New Email", placeholder="your-email@example.com", key="profile_email_input")
+            if st.button("Save Email", key="save_email_btn"):
+                if not new_email or new_email.strip() == "":
+                    st.error("Email cannot be empty")
+                else:
+                    is_valid, msg = validate_email(new_email)
+                    if not is_valid:
+                        st.error(f"Invalid email: {msg}")
+                    else:
+                        storage.set_user_email(current_user, new_email.strip())
+                        st.success(f"Email saved: {new_email}")
+                        st.rerun()
 
     # === TAB 2: TASKS ===
     with tab_tasks:
