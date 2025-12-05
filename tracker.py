@@ -410,7 +410,7 @@ def export_data_to_csv(data: Dict[str, Any]):
 
 def main():
     # --- Password reset via link handler ---
-    params = st.experimental_get_query_params()
+    params = st.query_params
     reset_user = params.get('reset_user', [None])[0]
     reset_token = params.get('token', [None])[0]
     if reset_user and reset_token:
