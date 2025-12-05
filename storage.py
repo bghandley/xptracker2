@@ -1,6 +1,7 @@
 import json
 import os
 import copy
+import re
 import streamlit as st
 import datetime
 from typing import Dict, Any, Optional
@@ -26,13 +27,22 @@ class StorageProvider:
     def save_data(self, user_id: str, data: Dict[str, Any]) -> None:
         raise NotImplementedError
 
+def sanitize_user_id(user_id: str) -> str:
+    """Sanitize user_id to prevent path traversal or invalid keys."""
+    if not user_id:
+        return "default"
+    # Allow alphanumeric, underscore, hyphen
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', user_id)
+    return sanitized if sanitized else "default"
+
 class LocalStorage(StorageProvider):
     """Stores data in local JSON files."""
 
     def _get_filename(self, user_id: str) -> str:
-        if user_id == "default":
+        safe_id = sanitize_user_id(user_id)
+        if safe_id == "default":
             return DATA_FILE
-        return f"xp_data_{user_id}.json"
+        return f"xp_data_{safe_id}.json"
 
     def load_data(self, user_id: str = "default") -> Dict[str, Any]:
         filename = self._get_filename(user_id)
@@ -60,34 +70,7 @@ class LocalStorage(StorageProvider):
             st.error(f"Failed to save data: {e}")
 
     def _ensure_schema(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensures all necessary keys exist in the loaded data."""
-        dirty = False
-
-        # Core keys
-        for key, default_val in DEFAULT_DATA.items():
-            if key not in data:
-                data[key] = copy.deepcopy(default_val)
-                dirty = True
-
-        # Habit structure updates
-        if "habits" in data:
-            for habit in data["habits"]:
-                habit_data = data["habits"][habit]
-                if "active" not in habit_data:
-                    habit_data["active"] = True
-                    dirty = True
-                if "goal" not in habit_data:
-                    habit_data["goal"] = "General"
-                    dirty = True
-                # New fields for leveling
-                if "level" not in habit_data:
-                    habit_data["level"] = 1
-                    dirty = True
-                if "total_completions" not in habit_data:
-                    habit_data["total_completions"] = 0
-                    dirty = True
-
-        return data
+        return ensure_data_schema(data)
 
 class FirebaseStorage(StorageProvider):
     """Stores data in Firebase Firestore."""
@@ -99,16 +82,23 @@ class FirebaseStorage(StorageProvider):
 
             # Check if already initialized
             if not firebase_admin._apps:
-                # Try to find credentials
-                cred_path = os.getenv("FIREBASE_CREDENTIALS", "firebase_credentials.json")
-                if os.path.exists(cred_path):
-                    cred = credentials.Certificate(cred_path)
+                # 1. Try Streamlit Secrets (Best for Cloud)
+                if hasattr(st, "secrets") and "firebase" in st.secrets:
+                    # Convert AttrDict to standard dict
+                    cred_dict = dict(st.secrets["firebase"])
+                    cred = credentials.Certificate(cred_dict)
                     firebase_admin.initialize_app(cred)
+
+                # 2. Try File Path (Env Var or Default)
                 else:
-                    # Fallback for when no creds are present (won't work but prevents import crash)
-                    # Use a dummy app or raise warning
-                    st.warning("Firebase credentials not found at 'firebase_credentials.json'.")
-                    return
+                    cred_path = os.getenv("FIREBASE_CREDENTIALS", "firebase_credentials.json")
+                    if os.path.exists(cred_path):
+                        cred = credentials.Certificate(cred_path)
+                        firebase_admin.initialize_app(cred)
+                    else:
+                        st.warning("Firebase credentials not found. Set 'firebase' in st.secrets or provide 'firebase_credentials.json'.")
+                        self.db = None
+                        return
 
             self.db = firestore.client()
         except ImportError:
@@ -121,7 +111,8 @@ class FirebaseStorage(StorageProvider):
         if not self.db:
             return copy.deepcopy(DEFAULT_DATA)
 
-        doc_ref = self.db.collection("users").document(user_id)
+        safe_id = sanitize_user_id(user_id)
+        doc_ref = self.db.collection("users").document(safe_id)
         doc = doc_ref.get()
 
         if doc.exists:
@@ -130,38 +121,42 @@ class FirebaseStorage(StorageProvider):
         else:
             # Create new user doc
             new_data = copy.deepcopy(DEFAULT_DATA)
-            self.save_data(user_id, new_data)
+            self.save_data(safe_id, new_data)
             return new_data
 
     def save_data(self, user_id: str, data: Dict[str, Any]) -> None:
         if not self.db:
             return
 
-        doc_ref = self.db.collection("users").document(user_id)
+        safe_id = sanitize_user_id(user_id)
+        doc_ref = self.db.collection("users").document(safe_id)
         doc_ref.set(data)
 
     def _ensure_schema(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        # Same schema validation as LocalStorage
-        # In a real app, this logic might be shared in a utility or base class
-        # copying from LocalStorage for now
+        return ensure_data_schema(data)
 
-        for key, default_val in DEFAULT_DATA.items():
-            if key not in data:
-                data[key] = copy.deepcopy(default_val)
+def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensures all necessary keys exist in the loaded data."""
+    # Core keys
+    for key, default_val in DEFAULT_DATA.items():
+        if key not in data:
+            data[key] = copy.deepcopy(default_val)
 
-        if "habits" in data:
-            for habit in data["habits"]:
-                habit_data = data["habits"][habit]
-                if "active" not in habit_data:
-                    habit_data["active"] = True
-                if "goal" not in habit_data:
-                    habit_data["goal"] = "General"
-                if "level" not in habit_data:
-                    habit_data["level"] = 1
-                if "total_completions" not in habit_data:
-                    habit_data["total_completions"] = 0
+    # Habit structure updates
+    if "habits" in data:
+        for habit in data["habits"]:
+            habit_data = data["habits"][habit]
+            if "active" not in habit_data:
+                habit_data["active"] = True
+            if "goal" not in habit_data:
+                habit_data["goal"] = "General"
+            # New fields for leveling
+            if "level" not in habit_data:
+                habit_data["level"] = 1
+            if "total_completions" not in habit_data:
+                habit_data["total_completions"] = 0
 
-        return data
+    return data
 
 def get_storage() -> StorageProvider:
     """Factory to get the configured storage provider."""

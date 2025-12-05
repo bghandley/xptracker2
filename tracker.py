@@ -123,10 +123,17 @@ def calculate_stats(data: Dict[str, Any]):
                     temp_streaks[habit] = 0
             
             # Perfect Day Bonus (All active habits completed)
-            # Logic: If at least 1 active habit exists, and completions >= active_count
-            if active_count > 0 and daily_habits_done >= active_count:
-                global_xp += 50 # Bonus XP for perfect day
-                perfect_days_count += 1
+            # Logic: Ensure ALL active habits are in the completion list for this day
+            if active_count > 0:
+                # Get set of active habit names
+                active_habit_names = {h for h, d in habits.items() if d.get("active", True)}
+                # Get set of completed habits for this day
+                completed_today = set(days_completed)
+
+                # Check if all active habits are completed
+                if active_habit_names.issubset(completed_today):
+                    global_xp += 50 # Bonus XP for perfect day
+                    perfect_days_count += 1
 
             current_d += delta
 
