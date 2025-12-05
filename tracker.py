@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 from storage import get_storage, validate_email
 from email_utils import send_email
+import notifications
 import urllib.parse
 import os
 
@@ -858,6 +859,57 @@ def main():
                         storage.set_user_email(current_user, new_email.strip())
                         st.success(f"Email saved: {new_email}")
                         st.rerun()
+
+        # --- Notification History ---
+        st.divider()
+        st.subheader("🔔 Notification History")
+        try:
+            history = notifications.get_user_notification_history(current_user, limit=50)
+        except Exception as e:
+            st.error(f"Failed to load notification history: {e}")
+            history = []
+
+        if not history:
+            st.info("No notifications have been sent to this account yet.")
+        else:
+            # Offer export
+            if st.button("Export Notification History (JSON)"):
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(history, indent=2),
+                    file_name=f"notifications_{current_user}.json",
+                    mime="application/json"
+                )
+
+            for i, rec in enumerate(history):
+                rec_ts = rec.get("timestamp")
+                rec_type = rec.get("type")
+                rec_data = rec.get("data", {})
+                subj = rec_data.get("subject", "(no subject)")
+                with st.expander(f"{rec_ts} — {rec_type} — {subj}", expanded=False):
+                    st.write("**Subject:**", subj)
+                    st.write("**Type:**", rec_type)
+                    st.write("**Timestamp:**", rec_ts)
+                    st.write("**Recipient:**", rec_data.get("recipient", "(unknown)"))
+                    body = rec_data.get("body")
+                    if body:
+                        st.markdown("**Body:**")
+                        st.code(body)
+                    else:
+                        st.info("No body stored for this notification.")
+
+                    # Resend button
+                    if st.button("Resend Notification", key=f"resend_{i}"):
+                        if not storage.get_user_email(current_user):
+                            st.error("No email on file to resend to.")
+                        else:
+                            ok = notifications.send_notification_email(current_user, subj, body or "", rec_type)
+                            if ok:
+                                st.success("Notification resent successfully.")
+                            else:
+                                st.error("Failed to resend notification.")
+
+        st.divider()
 
     # === TAB 2: TASKS ===
     with tab_tasks:
