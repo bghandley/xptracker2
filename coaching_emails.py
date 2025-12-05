@@ -53,23 +53,24 @@ def generate_streak_celebration(user_id: str, habit_name: str, streak: int, xp_e
     """
     client = get_openai_client()
     if not client:
-        return None
+        # Return fallback message
+        return f"{streak}-day streak on '{habit_name}' — that's the thinking that changes the game. Most people don't. You are."
     
     prompt = f"""
-You are a motivational personal coaching AI. Write a SHORT, ENTHUSIASTIC email celebrating a user's habit streak.
+You are a Price Pritchett-style quantum coach. Write a SHORT streak celebration (2 sentences max, under 50 words).
 
-User: {user_id}
-Habit: {habit_name}
-Streak: {streak} days
-XP Earned: {xp_earned}
+Style: Challenging but supportive. Quantum thinking. Action-focused. No fluff.
+- Don't celebrate effort; celebrate breakthrough thinking
+- Reference that most people quit; they're not
+- Make it about elevation, not maintenance
+- Slightly provocative edge, but warm underneath
 
-Write a 2-3 sentence message that:
-1. Celebrates their {streak}-day streak
-2. References the specific habit
-3. Encourages them to keep going
-4. Is warm, personal, and genuine (not corporate)
+Streak: {streak} days on '{habit_name}'
 
-Keep it under 100 words. No salutations or signatures needed.
+Example good: "30 days of this? That's the difference-maker. But here's the real win: you've proven you can. Most people never do."
+Example bad: "Great job! Keep it up!" (too generic)
+
+Write exactly 2 sentences. No "Hi {user_id}" or signature needed.
 """
     
     try:
@@ -84,7 +85,7 @@ Keep it under 100 words. No salutations or signatures needed.
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"OpenAI error: {e}")
-        return None
+        return f"{streak}-day streak on '{habit_name}' — that's the thinking that changes the game. Most people don't. You are."
 
 
 def generate_missed_day_encouragement(user_id: str, habit_name: str, days_missed: int, last_streak: int) -> Optional[str]:
@@ -102,23 +103,25 @@ def generate_missed_day_encouragement(user_id: str, habit_name: str, days_missed
     """
     client = get_openai_client()
     if not client:
-        return None
+        # Return fallback message
+        return f"Missed a day? That's data, not a defeat. You had a {last_streak}-day streak — that's real. Now: what's the game to get it back?"
     
     prompt = f"""
-You are a compassionate personal coaching AI. Write a SHORT, SUPPORTIVE email to encourage someone who missed their habit.
+You are a Price Pritchett-style quantum coach. Write a SHORT, supportive missed-day encouragement (2 sentences max, under 60 words).
 
-User: {user_id}
-Habit: {habit_name}
-Days Missed: {days_missed}
+Style: Challenging but NOT guilt-tripping. Reframe as data. Action-oriented. Quantum thinking.
+- Normalize the miss (everyone has)
+- Reference the {last_streak}-day streak as PROOF of capability
+- Don't shame; ask "what's the move NOW?"
+- Subtle dare to get back on track
+
+Habit: '{habit_name}'
 Previous Streak: {last_streak} days
 
-Write a 2-3 sentence message that:
-1. Acknowledges they missed {days_missed} day(s) (normalize it, don't shame them)
-2. Reminds them of their {last_streak}-day streak achievement
-3. Encourages them to get back on track TODAY
-4. Is warm, understanding, and motivating
+Example good: "You missed one. That's noise. Your {last_streak}-day streak proves you can. So: what's the move to start again today?"
+Example bad: "Don't worry, it happens! Try again tomorrow."
 
-Keep it under 100 words. No salutations or signatures needed.
+Write exactly 2 sentences. No "Hi" or signature needed.
 """
     
     try:
@@ -133,7 +136,7 @@ Keep it under 100 words. No salutations or signatures needed.
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"OpenAI error: {e}")
-        return None
+        return f"Missed a day? That's data, not a defeat. You had a {last_streak}-day streak — that's real. Now: what's the game to get it back?"
 
 
 def generate_weekly_summary(user_id: str, completed_count: int, total_habits: int, xp_earned: int, top_habit: str = None) -> Optional[str]:
@@ -152,25 +155,27 @@ def generate_weekly_summary(user_id: str, completed_count: int, total_habits: in
     """
     client = get_openai_client()
     if not client:
-        return None
-    
-    top_habit_text = f"Your star habit was '{top_habit}'" if top_habit else "You had strong consistency"
+        # Return fallback message
+        pct = int((completed_count / total_habits) * 100) if total_habits > 0 else 0
+        return f"You hit {pct}% this week. That's a pattern emerging. The question: is this the pattern you want? If not, what shifts this coming week?"
     
     prompt = f"""
-You are an encouraging personal coach. Write a SHORT weekly coaching summary email.
+You are a Price Pritchett-style quantum coach. Write a SHORT weekly summary (3 sentences max, under 80 words).
 
-User: {user_id}
-Habits Completed This Week: {completed_count}/{total_habits}
-Total XP Earned: {xp_earned}
-Top Habit: {top_habit_text}
+Style: Data-driven. Quantum thinking. Challenge embedded in support.
+- Show the metric ({completed_count}/{total_habits} = {int((completed_count/total_habits)*100) if total_habits else 0}%)
+- Ask: is this the pattern they WANT?
+- Mention top habit as proof of capability
+- End with a slight dare/question for next week
 
-Write a 3-4 sentence weekly summary that:
-1. Celebrates their week (they completed {completed_count} habits!)
-2. Highlights their XP progress
-3. Mentions their top habit if available
-4. Motivates them for the upcoming week
+Completed: {completed_count}/{total_habits}
+XP Earned: {xp_earned}
+Top Habit: {top_habit or "mixed results"}
 
-Keep it under 150 words. Be uplifting and specific. No salutations or signatures needed.
+Example good: "You hit 5/7 this week (71%). That's a pattern. Question: is this the pattern you want? Your '{top_habit}' proves you can. So: what shifts next week?"
+Example bad: "Great job this week! Keep it up!"
+
+Write exactly 3 sentences. No "Hi" or signature needed.
 """
     
     try:
@@ -185,7 +190,8 @@ Keep it under 150 words. Be uplifting and specific. No salutations or signatures
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"OpenAI error: {e}")
-        return None
+        pct = int((completed_count / total_habits) * 100) if total_habits > 0 else 0
+        return f"You hit {pct}% this week. That's a pattern emerging. The question: is this the pattern you want? If not, what shifts this coming week?"
 
 
 def generate_personalized_coaching(user_id: str, context: dict) -> Optional[str]:
@@ -201,24 +207,25 @@ def generate_personalized_coaching(user_id: str, context: dict) -> Optional[str]
     """
     client = get_openai_client()
     if not client:
-        return None
-    
-    context_str = json.dumps(context, indent=2)
+        # Return fallback message
+        return f"You're at a pivot point. The habits you've built are proof. Now: which one friction do you remove this week? Pick one. Remove it."
     
     prompt = f"""
-You are a wise, encouraging personal coach. Write SHORT personalized coaching advice.
+You are a Price Pritchett-style quantum coach. Write SHORT personalized coaching (3 sentences max, under 70 words).
 
-User: {user_id}
-Current Status:
-{context_str}
+Style: Data-driven. Quantum breakthroughs. Slightly provocative but warm.
+- Reference their actual data (level, streaks, top habit)
+- Identify ONE edge they're not playing yet
+- Give a specific micro-action (not philosophy)
+- End with a slight dare
 
-Write 3-4 sentences of personalized coaching that:
-1. Acknowledges their current progress
-2. Identifies one area to focus on (based on their data)
-3. Provides specific, actionable advice
-4. Is warm, genuine, and motivating
+Context:
+{json.dumps(context, indent=2)}
 
-Keep it under 120 words. No salutations or signatures needed.
+Example good: "You're Level 5 with a 12-day meditation streak. But I notice your 'Exercise' habit is stuck at 3 days. Here's the move: stack exercise right after meditation. One week. See what shifts."
+Example bad: "Keep up the great work!"
+
+Write exactly 3 sentences. No "Hi" or signature needed.
 """
     
     try:
@@ -233,7 +240,7 @@ Keep it under 120 words. No salutations or signatures needed.
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"OpenAI error: {e}")
-        return None
+        return f"You're at a pivot point. The habits you've built are proof. Now: which one friction do you remove this week? Pick one. Remove it."
 
 
 def test_openai_connection() -> bool:
