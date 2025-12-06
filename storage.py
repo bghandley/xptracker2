@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 DATA_FILE = "xp_data.json"
 DEFAULT_DATA = {
     "goals": ["General"],
+    "archived_goals": [],
     "habits": {},
     "tasks": [],
     "completions": {},

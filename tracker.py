@@ -54,6 +54,11 @@ PRIORITY_MAP = {
     "Low": "🔵"
 }
 
+def get_active_goals(data: Dict[str, Any]) -> List[str]:
+    """Return non-archived goals in stored order."""
+    archived = set(data.get("archived_goals", []))
+    return [g for g in data.get("goals", []) if g and g not in archived]
+
 # --- Data Management Wrappers ---
 
 def get_user_id():
@@ -540,12 +545,147 @@ def generate_habit_recommendations(profile: Dict[str, Any], focus_goals: List[st
     return ideas[:4]
 
 
+def _parse_gemini_task_recs(raw: str, default_goal: str, default_xp: int) -> List[Dict[str, Any]]:
+    """Parse Gemini JSON payload into mission format."""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return []
+
+    recs: List[Dict[str, Any]] = []
+    for item in payload if isinstance(payload, list) else []:
+        title = str(item.get("title") or item.get("name") or "").strip()
+        if not title:
+            continue
+        description = str(item.get("description", "")).strip() or "Clear, time-boxed mission."
+        goal = str(item.get("goal", default_goal)).strip() or default_goal
+        priority = str(item.get("priority", "Medium")).title()
+        if priority not in ["High", "Medium", "Low"]:
+            priority = "Medium"
+        xp_val = item.get("xp", default_xp)
+        try:
+            xp_val = int(xp_val)
+        except Exception:
+            xp_val = default_xp
+        xp_val = max(5, min(200, xp_val))
+        due_days = item.get("due_in_days") or item.get("due_days")
+        try:
+            due_days = int(due_days)
+        except Exception:
+            due_days = None
+        recs.append({
+            "title": title,
+            "description": description,
+            "goal": goal,
+            "xp": xp_val,
+            "priority": priority,
+            "due_in_days": due_days,
+        })
+        if len(recs) >= 5:
+            break
+    return recs
+
+
+def generate_task_recommendations_gemini(
+    profile: Dict[str, Any],
+    goal: str,
+    context: str,
+    effort_minutes: int,
+    urgency: str,
+) -> List[Dict[str, Any]]:
+    """Use Gemini to suggest missions for the chosen goal."""
+    client = get_gemini_client()
+    if not client:
+        return []
+
+    default_goal = goal or "General"
+    why_now = profile.get("why_now", "")
+    obstacle = profile.get("biggest_obstacle", "")
+    success_factor = profile.get("success_factor", "")
+    due_hint = {"Today": 1, "This week": 3, "This month": 7}.get(urgency, 3)
+
+    prompt = f"""
+You are an execution-focused coach. Propose 3-4 concrete missions to advance the goal below.
+
+Goal: {default_goal}
+Context: {context or "n/a"}
+Why Now: {why_now}
+Obstacle: {obstacle or "n/a"}
+Success Factor: {success_factor or "n/a"}
+Effort budget: {effort_minutes} minutes
+Target timeframe: {urgency} (about {due_hint} day(s))
+
+Return ONLY JSON (no markdown) in this shape:
+[
+  {{
+    "title": "Deliver sprint outline",
+    "description": "Draft a 3-bullet outline and share it with your team.",
+    "goal": "{default_goal}",
+    "priority": "High",
+    "xp": 60,
+    "due_in_days": {due_hint}
+  }}
+]
+
+Rules:
+- Make missions shippable and time-boxed.
+- Keep XP roughly proportional to effort (around effort_minutes * 2, clamp 10-150).
+- Use priority High/Medium/Low only.
+- If no due date needed, omit due_in_days.
+"""
+
+    try:
+        response = client.generate_content(prompt)
+        cleaned = _clean_json_block(response.text)
+        recs = _parse_gemini_task_recs(cleaned, default_goal, max(10, min(150, effort_minutes * 2)))
+        return recs
+    except Exception as e:
+        print(f"Gemini task rec error: {e}")
+        return []
+
+
+def generate_task_recommendations(goal: str, context: str, effort_minutes: int, urgency: str) -> List[Dict[str, Any]]:
+    """Deterministic fallback for mission ideas."""
+    xp = max(10, min(150, effort_minutes * 2))
+    due_hint = {"Today": 1, "This week": 3, "This month": 7}.get(urgency, 3)
+    base = context.strip() if context else f"Move {goal} forward."
+    missions = [
+        {
+            "title": f"{goal}: focused {effort_minutes}m push",
+            "description": f"Time-box {effort_minutes} minutes to knock out the next concrete step. {base}",
+            "goal": goal,
+            "priority": "High",
+            "xp": xp,
+            "due_in_days": due_hint,
+        },
+        {
+            "title": f"Unblock {goal}",
+            "description": "List top 3 blockers, remove one immediately, and schedule the next step.",
+            "goal": goal,
+            "priority": "Medium",
+            "xp": max(10, xp - 10),
+            "due_in_days": due_hint,
+        },
+        {
+            "title": f"Share progress on {goal}",
+            "description": "Draft a quick update and send it for accountability. Include what you finished and the next move.",
+            "goal": goal,
+            "priority": "Low",
+            "xp": max(10, xp - 20),
+            "due_in_days": None,
+        },
+    ]
+    return missions[:3]
+
+
 def render_guided_setup():
     """Guide new users to create a goal and a habit from onboarding answers."""
     if not st.session_state.get("authenticated_user"):
         return
 
     data = load_data()
+    active_goals = get_active_goals(data) or ["General"]
+    archived_goals = data.get("archived_goals", [])
     profile = get_coaching_profile(get_user_id())
 
     has_habits = bool(data.get("habits"))
@@ -559,7 +699,7 @@ def render_guided_setup():
 
     suggested_goal = (profile.get("life_goals") or [""])[0] or "First Goal"
     suggested_habit = profile.get("main_habit", "")
-    goal_options = data.get("goals", []) or ["General"]
+    goal_options = get_active_goals(data) or ["General"]
 
     # --- STEP 1: GOAL DISCOVERY ---
     with st.expander("Step 1: Discover High-Impact Goals", expanded=True):
@@ -748,7 +888,7 @@ def render_guided_setup():
             st.error("Goal name is required.")
 
     data = load_data()  # Refresh in case a goal was just added
-    goal_options = data.get("goals", []) or ["General"]
+    goal_options = get_active_goals(data) or ["General"]
     default_goal_index = goal_options.index(suggested_goal) if suggested_goal in goal_options else 0
 
     with st.form("guided_habit_form", clear_on_submit=True):
@@ -771,10 +911,51 @@ def render_guided_setup():
 
 def add_goal(goal_name: str):
     data = load_data()
-    if goal_name and goal_name not in data["goals"]:
+    goal_name = (goal_name or "").strip()
+    if not goal_name:
+        st.warning("Goal name is required.")
+        return
+
+    if "archived_goals" not in data:
+        data["archived_goals"] = []
+
+    if goal_name in data["archived_goals"]:
+        data["archived_goals"].remove(goal_name)
+
+    if goal_name not in data["goals"]:
         data["goals"].append(goal_name)
-        save_data(data)
-        st.success(f"Goal Added: {goal_name}")
+    save_data(data)
+    st.success(f"Goal Added: {goal_name}")
+
+def retire_goal(goal_name: str):
+    data = load_data()
+    goal_name = (goal_name or "").strip()
+    if not goal_name:
+        st.warning("No goal selected.")
+        return
+    if "archived_goals" not in data:
+        data["archived_goals"] = []
+    if goal_name in data["goals"]:
+        data["goals"] = [g for g in data["goals"] if g != goal_name]
+    if goal_name not in data["archived_goals"]:
+        data["archived_goals"].append(goal_name)
+    save_data(data)
+    st.success(f"Retired goal: {goal_name}")
+
+def restore_goal(goal_name: str):
+    data = load_data()
+    goal_name = (goal_name or "").strip()
+    if not goal_name:
+        st.warning("No goal selected.")
+        return
+    if "archived_goals" not in data:
+        data["archived_goals"] = []
+    if goal_name in data["archived_goals"]:
+        data["archived_goals"] = [g for g in data["archived_goals"] if g != goal_name]
+    if goal_name not in data["goals"]:
+        data["goals"].append(goal_name)
+    save_data(data)
+    st.success(f"Restored goal: {goal_name}")
 
 def add_new_habit(name: str, xp: int, goal: str, description: str = ""):
     data = load_data()
@@ -1175,8 +1356,30 @@ def main():
                     st.rerun()
             st.divider()
             st.write("Current Goals:")
-            for g in data["goals"]:
-                st.caption(f"• {g}")
+            if active_goals:
+                for g in active_goals:
+                    st.caption(f"• {g}")
+            else:
+                st.caption("None (add one above)")
+
+            retire_choice = st.selectbox(
+                "Retire a goal",
+                options=active_goals,
+                index=0 if active_goals else None,
+                key="retire_goal_select",
+                disabled=not active_goals,
+            )
+            if st.button("Retire selected goal", disabled=not active_goals):
+                retire_goal(retire_choice)
+                st.rerun()
+
+            if archived_goals:
+                st.divider()
+                st.write("Retired Goals:")
+                restore_choice = st.selectbox("Restore a goal", options=archived_goals, key="restore_goal_select")
+                if st.button("Restore selected goal"):
+                    restore_goal(restore_choice)
+                    st.rerun()
 
         with tab_add:
             with st.form("add_habit_form", clear_on_submit=True):
@@ -1184,7 +1387,7 @@ def main():
                 new_habit_name = st.text_input("Habit Name")
                 new_habit_desc = st.text_area("Description (optional)", height=68)
                 new_habit_xp = st.number_input("XP Reward", min_value=1, value=10)
-                habit_goal = st.selectbox("Link to Goal", options=data["goals"])
+                habit_goal = st.selectbox("Link to Goal", options=active_goals)
                 
                 submitted_add = st.form_submit_button("Create Habit")
                 if submitted_add:
@@ -1487,7 +1690,7 @@ def main():
                 t_col1, t_col2 = st.columns(2)
                 with t_col1:
                     task_title = st.text_input("Mission Title")
-                    task_goal = st.selectbox("Goal", options=data["goals"], key="task_goal")
+                    task_goal = st.selectbox("Goal", options=active_goals, key="task_goal")
                     task_priority = st.selectbox("Priority", ["High", "Medium", "Low"])
                 with t_col2:
                     task_xp = st.number_input("XP Reward", value=50, step=10)
@@ -1502,6 +1705,78 @@ def main():
                         st.rerun()
                     else:
                         st.error("Title is required.")
+
+        st.divider()
+
+        with st.expander("✨ Get AI mission ideas"):
+            with st.form("ai_mission_form", clear_on_submit=False):
+                ai_goal = st.selectbox("Goal to support", options=active_goals, key="ai_mission_goal")
+                ai_context = st.text_area("What do you need to accomplish?", placeholder="e.g., Prepare deck for client presentation")
+                ai_effort = st.slider("Time available (minutes)", min_value=15, max_value=180, value=45, step=15)
+                ai_urgency = st.selectbox("Target timeframe", ["Today", "This week", "This month"], index=1)
+                ai_submit = st.form_submit_button("Generate mission ideas")
+
+            if ai_submit:
+                profile = get_coaching_profile(get_user_id())
+                ai_recs = generate_task_recommendations_gemini(profile, ai_goal, ai_context, ai_effort, ai_urgency)
+                if not ai_recs:
+                    ai_recs = generate_task_recommendations(ai_goal, ai_context, ai_effort, ai_urgency)
+                    st.session_state["task_recs_notice"] = "Gemini unavailable; using deterministic mission ideas."
+                else:
+                    st.session_state["task_recs_notice"] = ""
+                st.session_state["task_recs"] = ai_recs
+                st.session_state["task_recs_params"] = {"goal": ai_goal, "urgency": ai_urgency}
+                st.success("Mission ideas ready below.")
+
+            notice = st.session_state.get("task_recs_notice")
+            if notice:
+                st.info(notice)
+
+        task_recs = st.session_state.get("task_recs", [])
+        if task_recs:
+            st.markdown("### AI mission ideas")
+            updated_tasks = []
+            for i, rec in enumerate(task_recs):
+                st.markdown(f"**Idea {i+1}:** {rec.get('title', 'Untitled')} ({rec.get('priority', 'Medium')})")
+                st.caption(rec.get("description", ""))
+                title = st.text_input("Mission title", value=rec.get("title", ""), key=f"task_rec_title_{i}")
+                desc = st.text_area("Description", value=rec.get("description", ""), height=80, key=f"task_rec_desc_{i}")
+                goal_choices = list(dict.fromkeys(active_goals + [rec.get("goal", "General")]))
+                goal_choice = st.selectbox("Goal", options=goal_choices, index=goal_choices.index(rec.get("goal", "General")), key=f"task_rec_goal_{i}")
+                priority_default = rec.get("priority", "Medium") if rec.get("priority", "Medium") in ["High", "Medium", "Low"] else "Medium"
+                priority = st.selectbox("Priority", ["High", "Medium", "Low"], index=["High", "Medium", "Low"].index(priority_default), key=f"task_rec_priority_{i}")
+                xp_val = st.number_input("XP Reward", min_value=5, max_value=200, value=int(rec.get("xp", 50)), step=5, key=f"task_rec_xp_{i}")
+                due_default = None
+                if rec.get("due_in_days") is not None:
+                    try:
+                        due_default = datetime.date.today() + datetime.timedelta(days=int(rec.get("due_in_days")))
+                    except Exception:
+                        due_default = None
+                due_date = st.date_input("Due date (optional)", value=due_default, key=f"task_rec_due_{i}")
+                pick = st.checkbox("Add this mission", value=True, key=f"task_rec_pick_{i}")
+                st.divider()
+                updated_tasks.append({
+                    "title": title,
+                    "description": desc,
+                    "goal": goal_choice,
+                    "priority": priority,
+                    "xp": int(xp_val),
+                    "due_date": due_date,
+                    "pick": pick,
+                })
+
+            if st.button("Add selected missions", key="add_ai_tasks"):
+                added_count = 0
+                for rec in updated_tasks:
+                    if rec["pick"] and rec["title"].strip():
+                        add_task(rec["title"].strip(), rec["description"], rec["xp"], rec["goal"], rec["priority"], rec["due_date"])
+                        added_count += 1
+                if added_count:
+                    st.session_state["task_recs"] = []
+                    st.success(f"Added {added_count} mission(s).")
+                    st.rerun()
+                else:
+                    st.info("Select at least one mission to add.")
 
         # Filter Tabs for Tasks
         t_tab_active, t_tab_done = st.tabs(["Active Missions", "Completed Missions"])
