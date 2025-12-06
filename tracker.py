@@ -11,6 +11,7 @@ from email_utils import send_email
 import notifications
 import urllib.parse
 import os
+from onboarding import show_onboarding_modal, save_onboarding_profile, has_completed_onboarding, show_profile_editor
 
 # === OPTION 3: IMPORT & INITIALIZE SCHEDULER ===
 try:
@@ -622,13 +623,14 @@ def main():
                             if not is_valid:
                                 st.error(f"Invalid email: {msg}")
                             else:
-                                # Create user by loading data (LocalStorage will create file)
+                                # Create user with email
                                 storage.load_data(username_input)
                                 if password_input:
                                     storage.set_user_password(username_input, password_input)
                                 storage.set_user_email(username_input, email_input.strip())
                                 st.session_state['user_id'] = username_input
                                 st.session_state['authenticated_user'] = username_input  # Set auth flag
+                                st.session_state['show_onboarding'] = True  # Show onboarding next
                                 st.success(f"Created and switched to user: {username_input}")
                                 st.info(f"Email saved: {email_input}")
                                 st.rerun()
@@ -639,11 +641,10 @@ def main():
                                 storage.set_user_password(username_input, password_input)
                             st.session_state['user_id'] = username_input
                             st.session_state['authenticated_user'] = username_input  # Set auth flag
+                            st.session_state['show_onboarding'] = True  # Show onboarding next
                             st.success(f"Created and switched to user: {username_input}")
                             st.info("💡 You can add email later in your Profile")
-                            st.rerun()
-
-        # Forgot password flow
+                            st.rerun()        # Forgot password flow
         if st.button('Forgot Password'):
             if not username_input or username_input.strip() == '':
                 st.error('Enter your username to request a reset link.')
@@ -767,6 +768,24 @@ def main():
         st.metric("Active Quests", f"{active_count} Habits / {pending_tasks} Missions")
 
     st.markdown("---")
+
+    # === ONBOARDING CHECK ===
+    # If user just created account and hasn't completed onboarding, show modal
+    is_authenticated = st.session_state.get('authenticated_user') is not None
+    if is_authenticated:
+        user_id = get_user_id()
+        
+        # Show onboarding if flagged or if not completed
+        if st.session_state.get('show_onboarding', False) or not has_completed_onboarding(user_id):
+            st.info("🚀 Let's personalize your XP Tracker experience with coaching!")
+            if show_onboarding_modal():
+                # User submitted onboarding
+                responses = st.session_state.get('onboarding_responses', {})
+                if save_onboarding_profile(user_id, responses):
+                    st.session_state['show_onboarding'] = False
+                    st.success("✅ Coaching profile created! Your personalized drip emails and daily digests are ready.")
+                    st.rerun()
+            st.stop()  # Stop rendering other content until onboarding complete
 
     # --- Tabs ---
     tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
@@ -929,7 +948,9 @@ def main():
                 st.info("🔇 Notifications disabled. You can re-enable them anytime.")
             st.rerun()
 
-        # --- Notification History ---
+        # === COACHING PROFILE EDITOR ===
+        st.divider()
+        show_profile_editor(current_user)        # --- Notification History ---
         st.divider()
         st.subheader("� Notification History")
         try:

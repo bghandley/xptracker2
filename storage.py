@@ -21,6 +21,27 @@ DEFAULT_DATA = {
     "badges": [],  # New
     "auth": {},
     "email": None,
+    # Coaching profile (onboarding questionnaire)
+    "coaching_profile": {
+        "life_goals": [],  # Top 3 goals: ["health", "career", "relationships"]
+        "main_habit": "",  # Most committed habit
+        "biggest_obstacle": "",  # time, motivation, remembering, etc.
+        "why_now": "",  # What triggered this change?
+        "timezone": "UTC",  # User's timezone
+        "chronotype": "morning",  # morning or evening person
+        "success_factor": "",  # One thing that would make them successful
+        "onboarding_complete": False,  # Flag: has user finished onboarding?
+        "digest_time": "20:00",  # Preferred daily digest time (HH:MM format)
+        "notifications_enabled": True,  # Receive daily digest?
+    },
+    # Daily digest tracking
+    "daily_digests": {},  # Date -> {completions, streaks, coaching}
+    # Coaching history for pattern detection
+    "coaching_insights": {
+        "missed_habits": {},  # habit -> count (for Day 14+ pattern detection)
+        "timing_issues": {},  # habit -> issue notes
+        "last_insight_date": None,  # When was last coaching insight generated?
+    },
 }
 
 class StorageProvider:
