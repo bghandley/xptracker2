@@ -1433,16 +1433,30 @@ def main():
                     if st.button("✏️ Edit", key=f"edit_{user}"):
                         st.session_state['admin_edit_user'] = user
                 with col4:
-                    if st.button("🗑️ Delete", key=f"delete_{user}"):
-                        # Confirm delete
-                        if st.checkbox(f"Confirm delete {user}?", key=f"confirm_delete_{user}"):
-                            import glob
-                            for file in glob.glob(f"xp_data_{user}.json") + glob.glob("xp_data.json" if user == "default" else ""):
-                                try:
-                                    os.remove(file)
-                                    st.success(f"Deleted user: {user}")
-                                except Exception as e:
-                                    st.error(f"Failed to delete: {e}")
+                        if st.session_state.get(f"deleting_{user}", False):
+                            col4a, col4b = st.columns([1, 1])
+                            with col4a:
+                                if st.button("✅ Confirm", key=f"confirm_delete_{user}"):
+                                    import glob
+                                    files_to_delete = glob.glob(f"xp_data_{user}.json")
+                                    if user == "default":
+                                        files_to_delete += glob.glob("xp_data.json")
+                                    for file in files_to_delete:
+                                        try:
+                                            os.remove(file)
+                                            st.success(f"✅ Deleted user: {user}")
+                                            st.session_state[f"deleting_{user}"] = False
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed to delete: {e}")
+                            with col4b:
+                                if st.button("❌ Cancel", key=f"cancel_delete_{user}"):
+                                    st.session_state[f"deleting_{user}"] = False
+                                    st.rerun()
+                        else:
+                            if st.button("🗑️ Delete", key=f"delete_{user}"):
+                                st.session_state[f"deleting_{user}"] = True
+                                st.rerun()
                 st.divider()
         else:
             st.info("No users found.")
