@@ -47,3 +47,46 @@ def get_ai_response(user_message: str, context: Dict[str, Any]) -> str:
         return response.text.strip()
     except Exception as e:
         return f"I encountered an error thinking about that: {str(e)}"
+
+def generate_journal_prompt(context: Dict[str, Any]) -> str:
+    """
+    Generate a personalized journal writing prompt.
+
+    Args:
+        context: User context (goals, stats, habits)
+
+    Returns:
+        String prompt
+    """
+    client = get_gemini_client()
+    if not client:
+        return "Write about your biggest win this week and one thing you want to improve next week."
+
+    # Construct context string
+    profile = context.get('profile', {})
+    stats = context.get('stats', {})
+
+    context_str = f"""
+    Life Goals: {', '.join(profile.get('life_goals', []))}
+    Main Habit: {profile.get('main_habit', 'N/A')}
+    Level: {stats.get('level', 1)}
+    """
+
+    prompt = f"""
+    You are a thoughtful journaling assistant. Based on the user's profile, generate a single, deep, reflective writing prompt.
+
+    First, write 1 short sentence recognizing their effort/habit building (cheering them on).
+    Then, provide the writing prompt.
+
+    User Context:
+    {context_str}
+
+    Example output:
+    "You're showing up consistently for your health, which is huge. Prompt: What does the 'Level 10' version of you do differently on a stressful day?"
+    """
+
+    try:
+        response = client.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return "Write about your biggest win this week and one thing you want to improve next week."

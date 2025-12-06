@@ -566,10 +566,17 @@ def render_guided_setup():
         st.markdown("**Need goal ideas?** AI can analyze your profile to suggest high-impact goals.")
         if st.button("✨ Generate Goal Ideas"):
             with st.spinner("Analyzing profile..."):
-                goal_recs = generate_goal_recommendations_gemini(profile)
+                goal_recs, error_msg = generate_goal_recommendations_gemini(profile)
                 if not goal_recs:
                     goal_recs = generate_goal_recommendations(profile)
-                    st.warning("Gemini unavailable; using standard recommendations.")
+                    if error_msg:
+                        if "API key" in error_msg or "not found" in error_msg:
+                            st.warning(f"Gemini unavailable ({error_msg}). Please add `gemini_api_key` to your Streamlit Secrets (Settings > Secrets) to enable AI features.")
+                        else:
+                            st.warning(f"Gemini error: {error_msg}. Using standard recommendations.")
+                    else:
+                        st.warning("Gemini returned no results; using standard recommendations.")
+
                 st.session_state["goal_recs"] = goal_recs
 
         goal_recs = st.session_state.get("goal_recs", [])
@@ -722,12 +729,13 @@ def render_guided_setup():
 
     with st.form("guided_habit_form", clear_on_submit=True):
         habit_name = st.text_input("Habit name", value=suggested_habit)
+        habit_desc = st.text_area("Description (optional)", height=68, placeholder="e.g. 'Read 10 pages before bed'")
         habit_goal = st.selectbox("Link to goal", options=goal_options, index=default_goal_index)
         habit_xp = st.number_input("XP reward", min_value=5, max_value=200, value=10, step=5)
         habit_submit = st.form_submit_button("Create Habit")
     if habit_submit:
         if habit_name.strip():
-            add_new_habit(habit_name.strip(), int(habit_xp), habit_goal)
+            add_new_habit(habit_name.strip(), int(habit_xp), habit_goal, habit_desc.strip())
             st.session_state["guided_setup"] = False
             st.success(f"Habit added: {habit_name.strip()}")
             st.rerun()
@@ -744,10 +752,10 @@ def add_goal(goal_name: str):
         save_data(data)
         st.success(f"Goal Added: {goal_name}")
 
-def add_new_habit(name: str, xp: int, goal: str):
+def add_new_habit(name: str, xp: int, goal: str, description: str = ""):
     data = load_data()
     if name and name not in data["habits"]:
-        data["habits"][name] = {"xp": xp, "active": True, "goal": goal}
+        data["habits"][name] = {"xp": xp, "active": True, "goal": goal, "description": description}
         save_data(data)
         st.success(f"Added habit: {name}")
     elif name in data["habits"]:
@@ -1150,12 +1158,13 @@ def main():
             with st.form("add_habit_form", clear_on_submit=True):
                 st.subheader("New Habit Quest")
                 new_habit_name = st.text_input("Habit Name")
+                new_habit_desc = st.text_area("Description (optional)", height=68)
                 new_habit_xp = st.number_input("XP Reward", min_value=1, value=10)
                 habit_goal = st.selectbox("Link to Goal", options=data["goals"])
                 
                 submitted_add = st.form_submit_button("Create Habit")
                 if submitted_add:
-                    add_new_habit(new_habit_name, new_habit_xp, habit_goal)
+                    add_new_habit(new_habit_name, new_habit_xp, habit_goal, new_habit_desc)
                     st.rerun()
 
         with tab_manage:
@@ -1261,6 +1270,9 @@ def main():
                         f"**{habit_name}** {level_badge} <br> <span style='background-color:#f0f2f6; color:#31333f; padding:2px 6px; border-radius:4px; font-size:0.75em'>{habit_goal}</span> <span style='color:gray; font-size:0.8em'>({details['xp']} XP)</span>",
                         unsafe_allow_html=True
                     )
+                    if details.get("description"):
+                        with st.expander("ℹ️ Details"):
+                            st.caption(details.get("description"))
                     
                 with c3:
                     if current_streak > 0:
@@ -1544,6 +1556,23 @@ def main():
                     else:
                         st.error("Section name is required.")
         
+        st.divider()
+
+        # AI Writing Prompt
+        if st.button("✨ Get AI Writing Prompt"):
+            with st.spinner("Consulting your AI coach..."):
+                profile = get_coaching_profile(get_user_id())
+                stats = {"level": current_level}
+                context = {"profile": profile, "stats": stats}
+                prompt = ai_chat.generate_journal_prompt(context)
+                st.session_state["journal_prompt"] = prompt
+
+        if "journal_prompt" in st.session_state:
+            st.info(f"**Coach says:** {st.session_state['journal_prompt']}")
+            if st.button("Dismiss Prompt"):
+                del st.session_state["journal_prompt"]
+                st.rerun()
+
         # Display Sections
         if not data["journal_sections"]:
             st.info("No sections yet. Create one to get started!")
