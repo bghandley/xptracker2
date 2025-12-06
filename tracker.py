@@ -1322,6 +1322,8 @@ def main():
         st.divider()
 
     data = load_data()
+    active_goals = get_active_goals(data) or ["General"]
+    archived_goals = data.get("archived_goals", [])
     today_str = get_date_str(0)
     
     global_xp, habit_stats, earned_badges = calculate_stats(data)
