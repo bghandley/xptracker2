@@ -79,11 +79,13 @@ Visit http://localhost:8501
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
+| **DOCUMENTATION_INDEX.md** | Navigation guide for all docs | Everyone |
 | **HOWTO_USE.md** | Complete user guide (how to use features) | End Users |
-| **GEMINI_SETUP.md** | Gemini API setup & examples | Developers/Admins |
 | **SETUP_STREAMLIT_FIREBASE.md** | Deployment to Streamlit Cloud + Firebase | DevOps/Deployment |
-| **MIGRATION_OPENAI_TO_GEMINI.md** | What changed (OpenAI → Gemini) | Developers |
+| **GEMINI_SETUP.md** | Gemini API setup & examples | Developers/Admins |
 | **AUTH_IMPLEMENTATION.md** | Authentication architecture | Developers |
+| **EMAIL_VALIDATION.md** | Email system implementation | Developers |
+| **AUTOMATION_IMPLEMENTATION_COMPLETE.md** | Notifications & scheduler system | Developers |
 
 ---
 
@@ -131,6 +133,15 @@ Visit http://localhost:8501
 - **Badge Earned** (new badge unlocked)
 - **Weekly Summary** (Sunday recap)
 - **Personalized Coaching** (custom AI advice)
+- **Habit Completion** (instant email on check-off)
+
+### Automation 🤖 (NEW)
+- **Auto-Send on Completion** — Email sent instantly when habit marked complete
+- **Daily Reminders** (7:00 AM) — Encourage incomplete habits
+- **Weekly Summary** (Sunday 9:00 AM) — Recap with coaching tips
+- **Streak Milestones** (6:00 AM) — Celebrate major streaks
+- **Per-User Opt-In** — Users control notifications in Profile
+- **Scheduler Status UI** (Admin panel) — View & manage background jobs
 
 ### Admin Panel
 - 🔐 Password-protected (ADMIN_PASSPHRASE)
@@ -177,8 +188,9 @@ Visit http://localhost:8501
 tracker.py                 ← Main Streamlit app (1500+ lines)
 ├── storage.py             ← Data persistence layer
 ├── email_utils.py         ← SMTP email sending
-├── coaching_emails.py     ← Gemini AI integration (NEW)
-├── notifications.py       ← Event-based notifications (NEW)
+├── coaching_emails.py     ← Gemini AI integration
+├── notifications.py       ← Event-based notifications
+├── scheduler_service.py   ← APScheduler background jobs (NEW)
 ├── reset_user_password.py ← CLI admin tool
 └── requirements.txt       ← Dependencies
 
@@ -241,6 +253,7 @@ streamlit>=1.28.0
 pandas>=2.0.0
 plotly>=5.0.0
 google-generativeai>=0.3.0
+apscheduler>=3.10.0
 firebase-admin
 ```
 
@@ -302,16 +315,18 @@ python -m pytest test_reset_flow.py -v
 - AI coaching (Gemini)
 - Leaderboard
 - Admin panel
-
-**In Progress** 🟡
-- APScheduler for automated daily/weekly sends
-- Per-user notification opt-in toggle
+- Auto-send on habit completion
+- APScheduler background automation
+- Per-user notification opt-in
 
 **Planned** 📋
 - Email retry logic
 - Mobile app
 - Custom notification schedules
 - API for third-party integrations
+- Phase 1: Email-first interactive coaching (design ready)
+- Phase 2: Chat widget (design ready)
+- Phase 3: Full coaching dashboard (design ready)
 
 ---
 

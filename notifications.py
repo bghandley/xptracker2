@@ -96,6 +96,12 @@ def send_notification_email(user_id: str, subject: str, body: str, notification_
         True if sent successfully
     """
     storage = get_storage()
+    
+    # Check if notifications are enabled for this user
+    if not storage.get_notifications_enabled(user_id):
+        print(f"Notifications disabled for {user_id}, skipping")
+        return False
+    
     email = storage.get_user_email(user_id)
     
     if not email:
@@ -331,6 +337,49 @@ Your XP Tracker Coach
 """
     
     return send_notification_email(user_id, subject, body, "personalized_coaching")
+
+
+def notify_habit_completed(user_id: str, habit_name: str, xp_earned: int, current_streak: int) -> bool:
+    """
+    Send celebration email when habit is marked complete.
+    
+    Args:
+        user_id: Username
+        habit_name: Name of completed habit
+        xp_earned: XP earned from this completion
+        current_streak: Current streak after completion
+    
+    Returns:
+        True if sent successfully
+    """
+    # Don't send more than once per day per habit per user
+    if has_recent_notification(user_id, f"habit_complete_{habit_name}", hours_back=24):
+        return False
+    
+    # Generate coaching message
+    coaching = generate_personalized_coaching(user_id, {
+        "context": "habit_completion",
+        "habit": habit_name,
+        "streak": current_streak,
+        "xp": xp_earned
+    })
+    
+    subject = f"✅ Quest Complete: {habit_name}! +{xp_earned} XP"
+    body = f"""
+Hello {user_id},
+
+Amazing! You just completed '{habit_name}' today! 🎯
+You earned +{xp_earned} XP and your streak is now {current_streak} day(s) long! 🔥
+
+{coaching if coaching else f"Great job staying consistent! Keep up this momentum and watch your skills grow!"}
+
+You're on your way to becoming legendary!
+
+Best regards,
+Your XP Tracker Coach
+"""
+    
+    return send_notification_email(user_id, subject, body, f"habit_complete_{habit_name}")
 
 
 def get_user_notification_history(user_id: str, limit: int = 10) -> List[Dict]:

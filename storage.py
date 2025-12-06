@@ -48,10 +48,20 @@ class StorageProvider:
     def get_user_email(self, user_id: str) -> Optional[str]:
         raise NotImplementedError
 
+    def set_notifications_enabled(self, user_id: str, enabled: bool) -> None:
+        raise NotImplementedError
+
+    def get_notifications_enabled(self, user_id: str) -> bool:
+        raise NotImplementedError
+
     def create_password_reset_token(self, user_id: str, expires_in: int = 3600) -> Optional[str]:
         raise NotImplementedError
 
     def verify_and_consume_reset_token(self, user_id: str, token: str) -> bool:
+        raise NotImplementedError
+
+    def list_users(self) -> list[str]:
+        """Return a list of user ids known to the storage provider."""
         raise NotImplementedError
 
 def validate_email(email: str) -> tuple[bool, str]:
@@ -144,6 +154,37 @@ class LocalStorage(StorageProvider):
         filename = self._get_filename(user_id)
         return os.path.exists(filename)
 
+    def list_users(self) -> list[str]:
+        """Discover users by scanning local data files.
+
+        Returns 'default' if xp_data.json exists, plus any xp_data_<user>.json files
+        with the user portion returned.
+        """
+        files = [f for f in os.listdir('.') if os.path.isfile(f)]
+        users = set()
+        for f in files:
+            if f == DATA_FILE:
+                users.add('default')
+            elif f.startswith('xp_data_') and f.endswith('.json'):
+                # xp_data_<user>.json
+                user = f[len('xp_data_'):-len('.json')]
+                if user:
+                    users.add(user)
+        return list(users)
+
+    def list_users(self) -> list[str]:
+        """List users stored in Firebase (document ids).
+        If Firestore isn't available or permission fails, returns an empty list.
+        """
+        try:
+            if not self.db:
+                return []
+            docs = self.db.collection('users').list_documents()
+            users = [doc.id for doc in docs]
+            return users
+        except Exception:
+            return []
+
     def set_user_password(self, user_id: str, password: str) -> None:
         # Load or create data, then set salted pbkdf2 hash
         data = self.load_data(user_id)
@@ -192,6 +233,20 @@ class LocalStorage(StorageProvider):
             return None
         data = self.load_data(user_id)
         return data.get('email')
+
+    def set_notifications_enabled(self, user_id: str, enabled: bool) -> None:
+        data = self.load_data(user_id)
+        if 'preferences' not in data:
+            data['preferences'] = {}
+        data['preferences']['notifications_enabled'] = enabled
+        self.save_data(user_id, data)
+
+    def get_notifications_enabled(self, user_id: str) -> bool:
+        if not self.user_exists(user_id):
+            return True  # Default to enabled
+        data = self.load_data(user_id)
+        prefs = data.get('preferences', {})
+        return prefs.get('notifications_enabled', True)  # Default to enabled
 
     # Password reset token helpers
     def create_password_reset_token(self, user_id: str, expires_in: int = 3600) -> Optional[str]:
@@ -307,6 +362,27 @@ class FirebaseStorage(StorageProvider):
     def _ensure_schema(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return ensure_data_schema(data)
 
+    def set_notifications_enabled(self, user_id: str, enabled: bool) -> None:
+        if not self.db:
+            return
+        safe_id = sanitize_user_id(user_id)
+        data = self.load_data(safe_id)
+        if 'preferences' not in data:
+            data['preferences'] = {}
+        data['preferences']['notifications_enabled'] = enabled
+        self.save_data(safe_id, data)
+
+    def get_notifications_enabled(self, user_id: str) -> bool:
+        try:
+            if not self.db:
+                return True  # Default to enabled
+            safe_id = sanitize_user_id(user_id)
+            data = self.load_data(safe_id)
+            prefs = data.get('preferences', {})
+            return prefs.get('notifications_enabled', True)  # Default to enabled
+        except Exception:
+            return True  # Default to enabled
+
 def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     """Ensures all necessary keys exist in the loaded data."""
     # Core keys
@@ -331,6 +407,12 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     # Ensure email exists at top level
     if "email" not in data:
         data["email"] = None
+
+    # Ensure preferences dict exists
+    if "preferences" not in data:
+        data["preferences"] = {}
+    if "notifications_enabled" not in data["preferences"]:
+        data["preferences"]["notifications_enabled"] = True
 
     # Ensure auth dict exists and reset fields
     if "auth" not in data or data.get("auth") is None:

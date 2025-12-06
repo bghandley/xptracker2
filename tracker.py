@@ -12,6 +12,13 @@ import notifications
 import urllib.parse
 import os
 
+# === OPTION 3: IMPORT & INITIALIZE SCHEDULER ===
+try:
+    import scheduler_service
+except ImportError:
+    # APScheduler not installed yet - will fail gracefully
+    scheduler_service = None
+
 # --- Configuration & Constants ---
 st.set_page_config(
     page_title="Level Up: XP Tracker",
@@ -344,6 +351,8 @@ def toggle_habit(habit_name: str, date_str: str):
         data["completions"][date_str] = []
     
     current_list = data["completions"][date_str]
+    is_completing = habit_name not in current_list
+    
     if habit_name in current_list:
         current_list.remove(habit_name)
     else:
@@ -352,6 +361,37 @@ def toggle_habit(habit_name: str, date_str: str):
     if not current_list:
         del data["completions"][date_str]
     save_data(data)
+    
+    # === OPTION 2: AUTO-SEND NOTIFICATION ON HABIT COMPLETION ===
+    if is_completing:  # Only send when habit is MARKED COMPLETE, not when unchecked
+        try:
+            # Get authenticated user
+            user_id = st.session_state.get('authenticated_user')
+            if not user_id:
+                # Also check admin context
+                user_id = st.session_state.get('user_id')
+            
+            if user_id:
+                # Get habit details
+                habit_details = data.get("habits", {}).get(habit_name, {})
+                base_xp = habit_details.get("xp", 10)
+                
+                # Calculate current streak for this habit
+                global_xp, habit_stats, earned_badges = calculate_stats(data)
+                habit_stat = habit_stats.get(habit_name, {})
+                current_streak = habit_stat.get('streak', 0)
+                
+                # Calculate XP earned (with streak bonus)
+                bonus_multiplier = 0.1 * (current_streak - 1)
+                if bonus_multiplier < 0:
+                    bonus_multiplier = 0
+                earned_xp = int(base_xp * (1 + bonus_multiplier))
+                
+                # Send notification (quietly - won't fail if email not set)
+                notifications.notify_habit_completed(user_id, habit_name, earned_xp, current_streak)
+        except Exception as e:
+            # Silently fail - don't interrupt user experience
+            pass
 
 # --- Task Actions ---
 
@@ -511,7 +551,17 @@ def main():
         st.session_state['authenticated_user'] = None
     if 'admin_authenticated' not in st.session_state:
         st.session_state['admin_authenticated'] = False
-
+    
+        # === OPTION 3: INITIALIZE BACKGROUND SCHEDULER ===
+        if 'scheduler_initialized' not in st.session_state:
+            if scheduler_service:
+                try:
+                    scheduler_service.init_scheduler()
+                    st.session_state['scheduler_initialized'] = True
+                except Exception as e:
+                    # Scheduler failed to initialize - app continues without background jobs
+                    pass
+            st.session_state['scheduler_initialized'] = True
     with st.sidebar:
         st.title("👤 User Profile")
 
@@ -860,9 +910,28 @@ def main():
                         st.success(f"Email saved: {new_email}")
                         st.rerun()
 
+        # === NOTIFICATION OPT-IN TOGGLE ===
+        st.divider()
+        st.subheader("🔔 Notification Preferences")
+        
+        notifications_enabled = storage.get_notifications_enabled(current_user)
+        new_notifications_enabled = st.checkbox(
+            "Enable email notifications",
+            value=notifications_enabled,
+            help="When enabled, you'll receive emails for habit completions, streaks, weekly summaries, and coaching tips. When disabled, no notification emails will be sent to you."
+        )
+        
+        if new_notifications_enabled != notifications_enabled:
+            storage.set_notifications_enabled(current_user, new_notifications_enabled)
+            if new_notifications_enabled:
+                st.success("✅ Notifications enabled!")
+            else:
+                st.info("🔇 Notifications disabled. You can re-enable them anytime.")
+            st.rerun()
+
         # --- Notification History ---
         st.divider()
-        st.subheader("🔔 Notification History")
+        st.subheader("� Notification History")
         try:
             history = notifications.get_user_notification_history(current_user, limit=50)
         except Exception as e:
@@ -1456,8 +1525,59 @@ def main():
                         else:
                             st.error("Failed to send personalized coaching")
 
+        # === SCHEDULER STATUS UI ===
+        st.divider()
+        st.subheader("⏰ Background Scheduler Status")
         
-        # Edit user details
+        if scheduler_service:
+            try:
+                status = scheduler_service.get_scheduler_status()
+                scheduler_running = "🟢 Running" in status.get("status", "")
+                st.write(f"**Scheduler Status:** {status.get('status', 'Unknown')}")
+                
+                jobs = status.get("jobs", [])
+                if jobs:
+                    st.write(f"**Scheduled Jobs:** {len(jobs)}")
+                    for job in jobs:
+                        job_id = job.get("id", "unknown")
+                        next_run = job.get("next_run", "unknown")
+                        st.write(f"  • **{job_id}** — Next run: {next_run}")
+                else:
+                    st.info("No jobs scheduled")
+                
+                # Manual job trigger buttons (for testing)
+                st.write("**Manual Job Triggers (for testing):**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("🔥 Run Streak Checks Now"):
+                        try:
+                            scheduler_service.job_streak_checks()
+                            st.success("Streak checks executed")
+                        except Exception as e:
+                            st.error(f"Error running streak checks: {e}")
+                
+                with col2:
+                    if st.button("📊 Run Weekly Summary Now"):
+                        try:
+                            scheduler_service.job_weekly_summary()
+                            st.success("Weekly summary executed")
+                        except Exception as e:
+                            st.error(f"Error running weekly summary: {e}")
+                
+                with col3:
+                    if st.button("⏰ Run Daily Reminder Now"):
+                        try:
+                            scheduler_service.job_daily_reminder()
+                            st.success("Daily reminder executed")
+                        except Exception as e:
+                            st.error(f"Error running daily reminder: {e}")
+                            
+            except Exception as e:
+                st.error(f"Failed to get scheduler status: {e}")
+        else:
+            st.warning("⚠️ Scheduler service not available (APScheduler not installed or failed to initialize)")
+
+        st.divider()
         if 'admin_edit_user' in st.session_state:
             edit_user = st.session_state['admin_edit_user']
             st.subheader(f"Edit: {edit_user}")
