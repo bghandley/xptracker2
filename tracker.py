@@ -470,10 +470,29 @@ def render_guided_setup():
         effort_minutes = st.slider("Minutes per habit", min_value=5, max_value=45, value=15, step=5)
         gen_submit = st.form_submit_button("Generate personalized habit ideas")
     if gen_submit:
+        st.session_state["habit_rec_params"] = {"focus": focus_goals, "cadence": cadence, "effort": effort_minutes}
         st.session_state["habit_recs"] = generate_habit_recommendations(profile, focus_goals, effort_minutes, cadence)
 
     recs = st.session_state.get("habit_recs", [])
     if recs:
+        col_sel_all, col_sel_none, col_retry = st.columns(3)
+        with col_sel_all:
+            if st.button("Select all"):
+                for i in range(len(recs)):
+                    st.session_state[f"rec_pick_{i}"] = True
+        with col_sel_none:
+            if st.button("Select none"):
+                for i in range(len(recs)):
+                    st.session_state[f"rec_pick_{i}"] = False
+        with col_retry:
+            if st.button("Regenerate ideas"):
+                params = st.session_state.get("habit_rec_params", {})
+                fg = params.get("focus", focus_goals)
+                cd = params.get("cadence", cadence)
+                eff = params.get("effort", effort_minutes)
+                st.session_state["habit_recs"] = generate_habit_recommendations(profile, fg, eff, cd)
+                st.rerun()
+
         st.write("Review, tweak, and add the habits you like:")
         added = False
         updated_recs = []
@@ -1128,6 +1147,12 @@ def main():
                         )
 
         st.divider()
+        if st.button("🔮 Generate more goal/habit ideas"):
+            st.session_state["guided_setup"] = True
+            st.session_state["habit_recs"] = []
+            st.success("Reopening guided habit creator above.")
+            st.rerun()
+
         st.subheader("📊 Career Stats")
         st.write(f"**Current Level:** {current_level}")
         st.write(f"**Total XP:** {global_xp}")
