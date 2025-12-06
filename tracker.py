@@ -688,27 +688,51 @@ def render_guided_setup():
             goal_choices = list(dict.fromkeys(goal_options + [rec["goal"]]))
             goal_choice = st.selectbox("Goal", options=goal_choices, index=goal_choices.index(rec["goal"]), key=f"rec_goal_{i}")
             xp_val = st.number_input("XP", min_value=5, max_value=200, value=int(rec["xp"]), step=5, key=f"rec_xp_{i}")
+            desc_val = st.text_area("Description", value=rec.get("reason", ""), height=64, key=f"rec_desc_{i}")
             pick = st.checkbox("Add this habit", value=True, key=f"rec_pick_{i}")
+            add_task_flag = st.checkbox("Also add as mission", value=False, key=f"rec_task_{i}")
+            if add_task_flag:
+                task_priority = st.selectbox("Mission priority", ["High", "Medium", "Low"], index=1, key=f"rec_priority_{i}")
+            else:
+                task_priority = st.session_state.get(f"rec_priority_{i}", "Medium")
             st.divider()
-            updated_recs.append({"name": name, "goal": goal_choice, "xp": int(xp_val), "pick": pick})
+            updated_recs.append({
+                "name": name,
+                "goal": goal_choice,
+                "xp": int(xp_val),
+                "description": desc_val.strip() or rec.get("reason", ""),
+                "pick": pick,
+                "add_task": add_task_flag,
+                "task_priority": task_priority,
+            })
 
         if st.button("Add selected habits"):
             added_count = 0
+            task_added_count = 0
             for rec in updated_recs:
-                if rec["pick"] and rec["name"].strip():
-                    # Ensure goal exists
-                    if rec["goal"] not in goal_options:
-                        add_goal(rec["goal"])
-                        goal_options.append(rec["goal"])
-                    add_new_habit(rec["name"].strip(), rec["xp"], rec["goal"])
+                if not rec["name"].strip():
+                    continue
+
+                # Ensure goal exists for both habits and missions
+                if rec["goal"] not in goal_options:
+                    add_goal(rec["goal"])
+                    goal_options.append(rec["goal"])
+
+                if rec["pick"]:
+                    add_new_habit(rec["name"].strip(), rec["xp"], rec["goal"], rec.get("description", ""))
                     added_count += 1
-            if added_count:
+
+                if rec.get("add_task"):
+                    add_task(rec["name"].strip(), rec.get("description", ""), rec["xp"], rec["goal"], rec.get("task_priority", "Medium"), None)
+                    task_added_count += 1
+
+            if added_count or task_added_count:
                 st.session_state["guided_setup"] = False
                 st.session_state["habit_recs"] = []
-                st.success(f"Added {added_count} habit(s).")
+                st.success(f"Added {added_count} habit(s) and {task_added_count} mission(s).")
                 st.rerun()
             else:
-                st.info("Select at least one habit to add.")
+                st.info("Select at least one habit or mission to add.")
 
     st.markdown("**Or add your own quickly:**")
     with st.form("guided_goal_form", clear_on_submit=True):
