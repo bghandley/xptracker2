@@ -319,6 +319,127 @@ def get_leaderboard_stats(time_period: str = "all_time") -> List[tuple]:
     return leaderboard
 
 
+def _obstacle_hint(obstacle: str) -> str:
+    obstacle = obstacle.lower()
+    if "time" in obstacle:
+        return "keeps it short so it fits busy days"
+    if "motivation" in obstacle or "discipline" in obstacle:
+        return "is tiny enough to keep your streak alive"
+    if "forget" in obstacle:
+        return "ties to an existing trigger so you remember"
+    if "perfect" in obstacle:
+        return "defaults to a small win to avoid all-or-nothing thinking"
+    return "is small and repeatable to build momentum"
+
+
+def _chronotype_anchor(chronotype: str) -> str:
+    if "evening" in chronotype:
+        return "evening wind-down"
+    if "morning" in chronotype:
+        return "morning start"
+    return "midday anchor"
+
+
+def generate_habit_recommendations(profile: Dict[str, Any], focus_goals: List[str], effort_minutes: int, cadence: str) -> List[Dict[str, Any]]:
+    """Deterministic 'GPT-like' habit ideas tailored to onboarding answers."""
+    goals = focus_goals or profile.get("life_goals", []) or ["General"]
+    obstacle = profile.get("biggest_obstacle", "")
+    chronotype = profile.get("chronotype", "flexible")
+    main_habit = profile.get("main_habit", "")
+    anchor = _chronotype_anchor(chronotype)
+    reason_tail = _obstacle_hint(obstacle)
+    xp = max(8, min(40, effort_minutes))  # keep XP aligned with effort
+
+    ideas = []
+
+    def add_idea(name: str, goal: str, why: str):
+        if len(ideas) >= 4:
+            return
+        if any(i["name"].lower() == name.lower() for i in ideas):
+            return
+        ideas.append({"name": name, "goal": goal, "xp": xp, "reason": why})
+
+    # Reinforce the main habit if provided
+    if main_habit:
+        add_idea(
+            f"{main_habit} ({cadence})",
+            goals[0],
+            f"Directly supports your main habit with a {anchor} slot and {reason_tail}.",
+        )
+
+    for goal in goals:
+        gl = goal.lower()
+        if "health" in gl or "fit" in gl:
+            add_idea(
+                f"{effort_minutes}m mobility {anchor}",
+                goal,
+                f"Quick body prep in your {anchor}; {reason_tail}.",
+            )
+            add_idea(
+                "Prep tomorrow's meal/snacks",
+                goal,
+                f"Evening 5–10m batch prep reduces friction for your health goal.",
+            )
+        elif "career" in gl or "learn" in gl:
+            add_idea(
+                f"{effort_minutes}m deep work warm-up",
+                goal,
+                f"{anchor.title()} sprint on your top task; finishes with writing tomorrow's first step.",
+            )
+            add_idea(
+                "Capture one insight and share it",
+                goal,
+                "Write one takeaway daily; ships a tiny artifact to build credibility.",
+            )
+        elif "mental" in gl or "mind" in gl:
+            add_idea(
+                "5m box-breathing before first screen",
+                goal,
+                f"{anchor.title()} nervous-system reset; {reason_tail}.",
+            )
+        elif "relationship" in gl or "community" in gl:
+            add_idea(
+                "Send one thoughtful check-in",
+                goal,
+                "One message or voice note daily; easy to sustain and compounds connection.",
+            )
+        elif "financial" in gl or "money" in gl:
+            add_idea(
+                "3m spend review + next-day plan",
+                goal,
+                "Micro review right after dinner; links to an existing routine to avoid forgetting.",
+            )
+        elif "creativity" in gl or "creative" in gl:
+            add_idea(
+                f"{effort_minutes}m create-before-consume",
+                goal,
+                f"{anchor.title()} make a small thing before scrolling; protects creative time.",
+            )
+        elif "spiritual" in gl:
+            add_idea(
+                "5m reflection with one line of gratitude",
+                goal,
+                f"Tuck it into your {anchor} to make it automatic.",
+            )
+        else:
+            add_idea(
+                f"{effort_minutes}m focused block ({goal})",
+                goal,
+                f"{anchor.title()} anchor to move {goal} forward; {reason_tail}.",
+            )
+
+    # If we still have space, add one friction-buster for obstacle
+    if len(ideas) < 4:
+        if "time" in obstacle.lower():
+            add_idea("3m daily plan (one big, one tiny)", goals[0], "Keeps scope realistic so you win the day.")
+        elif "forget" in obstacle.lower():
+            add_idea("Place visual cue in your trigger spot", goals[0], "Creates a physical reminder so you never miss it.")
+        elif "motivation" in obstacle.lower():
+            add_idea("Default to 1-minute version", goals[0], "Automatic fallback prevents zero days.")
+
+    return ideas[:4]
+
+
 def render_guided_setup():
     """Guide new users to create a goal and a habit from onboarding answers."""
     if not st.session_state.get("authenticated_user"):
@@ -338,7 +459,54 @@ def render_guided_setup():
 
     suggested_goal = (profile.get("life_goals") or [""])[0] or "First Goal"
     suggested_habit = profile.get("main_habit", "")
+    goal_options = data.get("goals", []) or ["General"]
 
+    # Habit recommender (deterministic, based on onboarding answers)
+    st.markdown("**Need ideas?** I'll propose 3–4 habits across your goals.")
+    with st.form("habit_rec_settings", clear_on_submit=False):
+        focus_default = [g for g in profile.get("life_goals", []) if g in goal_options] or goal_options[:2]
+        focus_goals = st.multiselect("Focus areas", options=goal_options, default=focus_default or goal_options)
+        cadence = st.selectbox("Cadence style", ["Daily micro", "3x/week", "Weekly anchor"])
+        effort_minutes = st.slider("Minutes per habit", min_value=5, max_value=45, value=15, step=5)
+        gen_submit = st.form_submit_button("Generate personalized habit ideas")
+    if gen_submit:
+        st.session_state["habit_recs"] = generate_habit_recommendations(profile, focus_goals, effort_minutes, cadence)
+
+    recs = st.session_state.get("habit_recs", [])
+    if recs:
+        st.write("Review, tweak, and add the habits you like:")
+        added = False
+        updated_recs = []
+        for i, rec in enumerate(recs):
+            st.markdown(f"**Idea {i+1}:** {rec['reason']}")
+            name = st.text_input("Name", value=rec["name"], key=f"rec_name_{i}")
+            # Ensure goal option exists
+            goal_choices = list(dict.fromkeys(goal_options + [rec["goal"]]))
+            goal_choice = st.selectbox("Goal", options=goal_choices, index=goal_choices.index(rec["goal"]), key=f"rec_goal_{i}")
+            xp_val = st.number_input("XP", min_value=5, max_value=200, value=int(rec["xp"]), step=5, key=f"rec_xp_{i}")
+            pick = st.checkbox("Add this habit", value=True, key=f"rec_pick_{i}")
+            st.divider()
+            updated_recs.append({"name": name, "goal": goal_choice, "xp": int(xp_val), "pick": pick})
+
+        if st.button("Add selected habits"):
+            added_count = 0
+            for rec in updated_recs:
+                if rec["pick"] and rec["name"].strip():
+                    # Ensure goal exists
+                    if rec["goal"] not in goal_options:
+                        add_goal(rec["goal"])
+                        goal_options.append(rec["goal"])
+                    add_new_habit(rec["name"].strip(), rec["xp"], rec["goal"])
+                    added_count += 1
+            if added_count:
+                st.session_state["guided_setup"] = False
+                st.session_state["habit_recs"] = []
+                st.success(f"Added {added_count} habit(s).")
+                st.rerun()
+            else:
+                st.info("Select at least one habit to add.")
+
+    st.markdown("**Or add your own quickly:**")
     with st.form("guided_goal_form", clear_on_submit=True):
         goal_name = st.text_input("Goal name", value=suggested_goal)
         goal_submit = st.form_submit_button("Create Goal")
@@ -353,9 +521,7 @@ def render_guided_setup():
 
     data = load_data()  # Refresh in case a goal was just added
     goal_options = data.get("goals", []) or ["General"]
-    default_goal_index = 0
-    if suggested_goal in goal_options:
-        default_goal_index = goal_options.index(suggested_goal)
+    default_goal_index = goal_options.index(suggested_goal) if suggested_goal in goal_options else 0
 
     with st.form("guided_habit_form", clear_on_submit=True):
         habit_name = st.text_input("Habit name", value=suggested_habit)
@@ -370,6 +536,7 @@ def render_guided_setup():
             st.rerun()
         else:
             st.error("Habit name is required.")
+
 
 # --- UI Action Handlers ---
 
