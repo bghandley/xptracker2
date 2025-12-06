@@ -6,7 +6,7 @@ Generates personalized, encouraging coaching emails using Gemini.
 import os
 import json
 import streamlit as st
-from typing import Optional
+from typing import Optional, Tuple
 from datetime import datetime
 
 # Try to import Google Generative AI
@@ -17,29 +17,51 @@ except ImportError:
     HAS_GEMINI = False
 
 
-def get_gemini_client():
-    """Get Gemini client if API key is available."""
+def get_gemini_status() -> Tuple[bool, str, Optional[str]]:
+    """Return whether Gemini is ready, reason, and the API key (if found)."""
     if not HAS_GEMINI:
-        return None
-    
+        return False, "google.generativeai not installed", None
+
     api_key = None
-    
+    source = None
+
     # Try st.secrets first
     if hasattr(st, 'secrets') and st.secrets.get('gemini_api_key'):
         api_key = st.secrets.get('gemini_api_key')
+        source = "st.secrets['gemini_api_key']"
     elif hasattr(st, 'secrets') and st.secrets.get('gemini api key'):
         # Support older/typo key naming
         api_key = st.secrets.get('gemini api key')
-    
+        source = "st.secrets['gemini api key']"
+
     # Fall back to environment variable
     if not api_key:
-        api_key = os.environ.get('GEMINI_API_KEY')
-    
+        env_key = os.environ.get('GEMINI_API_KEY')
+        if env_key:
+            api_key = env_key
+            source = "env GEMINI_API_KEY"
+
     if not api_key:
+        return False, "No Gemini key found (expected st.secrets['gemini_api_key'] or env GEMINI_API_KEY)", None
+
+    return True, f"Gemini key loaded from {source}", api_key
+
+
+def get_gemini_client(debug: bool = False):
+    """Get Gemini client if API key is available."""
+    ok, msg, api_key = get_gemini_status()
+    if not ok:
+        if debug:
+            print(f"Gemini unavailable: {msg}")
         return None
-    
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-pro')
+
+    try:
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel('gemini-pro')
+    except Exception as e:
+        if debug:
+            print(f"Gemini configure error: {e}")
+        return None
 
 
 def generate_streak_celebration(user_id: str, habit_name: str, streak: int, xp_earned: int) -> Optional[str]:
