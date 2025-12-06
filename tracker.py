@@ -11,7 +11,13 @@ from email_utils import send_email
 import notifications
 import urllib.parse
 import os
-from onboarding import show_onboarding_modal, save_onboarding_profile, has_completed_onboarding, show_profile_editor
+from onboarding import (
+    show_onboarding_modal,
+    save_onboarding_profile,
+    has_completed_onboarding,
+    show_profile_editor,
+    get_coaching_profile,
+)
 
 # === OPTION 3: IMPORT & INITIALIZE SCHEDULER ===
 try:
@@ -311,6 +317,59 @@ def get_leaderboard_stats(time_period: str = "all_time") -> List[tuple]:
     # Sort by XP descending
     leaderboard.sort(key=lambda x: x[1], reverse=True)
     return leaderboard
+
+
+def render_guided_setup():
+    """Guide new users to create a goal and a habit from onboarding answers."""
+    if not st.session_state.get("authenticated_user"):
+        return
+
+    data = load_data()
+    profile = get_coaching_profile(get_user_id())
+
+    has_habits = bool(data.get("habits"))
+    needs_guided = st.session_state.get("guided_setup", False) or not has_habits
+    if not needs_guided:
+        return
+
+    st.divider()
+    st.subheader("Guided Setup: create your first goal and habit")
+    st.caption("We pre-filled suggestions from your onboarding so you can start tracking right away.")
+
+    suggested_goal = (profile.get("life_goals") or [""])[0] or "First Goal"
+    suggested_habit = profile.get("main_habit", "")
+
+    with st.form("guided_goal_form", clear_on_submit=True):
+        goal_name = st.text_input("Goal name", value=suggested_goal)
+        goal_submit = st.form_submit_button("Create Goal")
+    if goal_submit:
+        if goal_name.strip():
+            add_goal(goal_name.strip())
+            st.session_state["guided_setup"] = True
+            st.success(f"Goal added: {goal_name.strip()}")
+            st.rerun()
+        else:
+            st.error("Goal name is required.")
+
+    data = load_data()  # Refresh in case a goal was just added
+    goal_options = data.get("goals", []) or ["General"]
+    default_goal_index = 0
+    if suggested_goal in goal_options:
+        default_goal_index = goal_options.index(suggested_goal)
+
+    with st.form("guided_habit_form", clear_on_submit=True):
+        habit_name = st.text_input("Habit name", value=suggested_habit)
+        habit_goal = st.selectbox("Link to goal", options=goal_options, index=default_goal_index)
+        habit_xp = st.number_input("XP reward", min_value=5, max_value=200, value=10, step=5)
+        habit_submit = st.form_submit_button("Create Habit")
+    if habit_submit:
+        if habit_name.strip():
+            add_new_habit(habit_name.strip(), int(habit_xp), habit_goal)
+            st.session_state["guided_setup"] = False
+            st.success(f"Habit added: {habit_name.strip()}")
+            st.rerun()
+        else:
+            st.error("Habit name is required.")
 
 # --- UI Action Handlers ---
 
@@ -783,9 +842,13 @@ def main():
                 responses = st.session_state.get('onboarding_responses', {})
                 if save_onboarding_profile(user_id, responses):
                     st.session_state['show_onboarding'] = False
+                    st.session_state['guided_setup'] = True
                     st.success("✅ Coaching profile created! Your personalized drip emails and daily digests are ready.")
                     st.rerun()
             st.stop()  # Stop rendering other content until onboarding complete
+
+    # --- Guided setup for first goal/habit ---
+    render_guided_setup()
 
     # --- Tabs ---
     tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
