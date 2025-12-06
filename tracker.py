@@ -19,6 +19,9 @@ from onboarding import (
     show_profile_editor,
     get_coaching_profile,
 )
+from goals_recommendation import generate_goal_recommendations, generate_goal_recommendations_gemini
+import ai_chat
+import coaching_engine
 
 # === OPTION 3: IMPORT & INITIALIZE SCHEDULER ===
 try:
@@ -558,8 +561,34 @@ def render_guided_setup():
     suggested_habit = profile.get("main_habit", "")
     goal_options = data.get("goals", []) or ["General"]
 
+    # --- STEP 1: GOAL DISCOVERY ---
+    with st.expander("Step 1: Discover High-Impact Goals", expanded=True):
+        st.markdown("**Need goal ideas?** AI can analyze your profile to suggest high-impact goals.")
+        if st.button("✨ Generate Goal Ideas"):
+            with st.spinner("Analyzing profile..."):
+                goal_recs = generate_goal_recommendations_gemini(profile)
+                if not goal_recs:
+                    goal_recs = generate_goal_recommendations(profile)
+                    st.warning("Gemini unavailable; using standard recommendations.")
+                st.session_state["goal_recs"] = goal_recs
+
+        goal_recs = st.session_state.get("goal_recs", [])
+        if goal_recs:
+            st.write("Select a goal to add:")
+            cols = st.columns(2)
+            for i, rec in enumerate(goal_recs):
+                with cols[i % 2]:
+                    with st.container():
+                        st.info(f"**{rec['name']}**\n\n_{rec['reason']}_")
+                        if st.button(f"Add Goal: {rec['name']}", key=f"add_goal_rec_{i}"):
+                            add_goal(rec['name'])
+                            st.rerun()
+
+    # --- STEP 2: HABIT CREATION ---
+    st.markdown("### Step 2: Build Habits")
+
     # Habit recommender (deterministic, based on onboarding answers)
-    st.markdown("**Need ideas?** I'll propose 3–4 habits across your goals.")
+    st.markdown("**Need habit ideas?** I'll propose 3–4 habits across your goals.")
     with st.form("habit_rec_settings", clear_on_submit=False):
         focus_default = [g for g in profile.get("life_goals", []) if g in goal_options] or goal_options[:2]
         focus_goals = st.multiselect("Focus areas", options=goal_options, default=focus_default or goal_options)
@@ -1186,7 +1215,7 @@ def main():
     render_guided_setup()
 
     # --- Tabs ---
-    tab_habits, tab_tasks, tab_journal, tab_reports, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
+    tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -1706,6 +1735,73 @@ def main():
                 file_name=f"xp_tracker_export_{datetime.date.today().isoformat()}.json",
                 mime="application/json"
             )
+
+    # === TAB 5: AI COACH ===
+    with tab_ai_coach:
+        # Auth check
+        is_authenticated = st.session_state.get('authenticated_user') is not None
+        is_admin = st.session_state.get('admin_authenticated', False)
+        if not is_authenticated and not is_admin:
+            st.warning("⚠️ Please log in to talk to your AI Coach.")
+            st.stop()
+
+        st.header("🧠 AI Coach")
+
+        col_chat, col_insights = st.columns([2, 1])
+
+        with col_chat:
+            st.subheader("💬 Chat with Coach")
+            st.info("Ask for advice, motivation, or help breaking down a goal.")
+
+            # Chat history
+            if "chat_history" not in st.session_state:
+                st.session_state["chat_history"] = []
+
+            for msg in st.session_state["chat_history"]:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            if prompt := st.chat_input("How can I help you level up today?"):
+                # Add user message
+                st.session_state["chat_history"].append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.write(prompt)
+
+                # Get AI response
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        # Build context
+                        profile = get_coaching_profile(get_user_id())
+                        context = {
+                            "profile": profile,
+                            "stats": {"level": current_level, "total_xp": global_xp},
+                            "habits": data.get("habits", {})
+                        }
+                        response = ai_chat.get_ai_response(prompt, context)
+                        st.write(response)
+                        st.session_state["chat_history"].append({"role": "assistant", "content": response})
+
+        with col_insights:
+            st.subheader("📈 Pattern Analysis")
+            user_id = get_user_id()
+            insights = coaching_engine.analyze_user_patterns(user_id)
+
+            if not insights.get("ready"):
+                st.info(f"Analysis pending: {insights.get('reason')}")
+                st.caption("We need about 14 days of data to spot meaningful patterns.")
+            else:
+                st.success("Analysis Ready!")
+                st.markdown("### Top Recommendations")
+                for rec in insights.get("recommendations", [])[:3]:
+                    st.write(f"• {rec}")
+
+                st.markdown("### Strengths")
+                for s in insights.get("strengths", []):
+                    st.write(f"✅ {s}")
+
+                st.markdown("### Challenges")
+                for c in insights.get("challenges", []):
+                    st.write(f"⚠️ {c}")
 
     # === TAB 6: LEADERBOARD ===
     with tab_leaderboard:
