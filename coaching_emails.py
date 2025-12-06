@@ -27,6 +27,9 @@ def get_gemini_client():
     # Try st.secrets first
     if hasattr(st, 'secrets') and st.secrets.get('gemini_api_key'):
         api_key = st.secrets.get('gemini_api_key')
+    elif hasattr(st, 'secrets') and st.secrets.get('gemini api key'):
+        # Support older/typo key naming
+        api_key = st.secrets.get('gemini api key')
     
     # Fall back to environment variable
     if not api_key:
@@ -215,10 +218,12 @@ Write exactly 3 sentences. No "Hi" or signature needed."""
 def test_gemini_connection() -> bool:
     """Test if Gemini connection is available."""
     if not HAS_GEMINI:
+        print("Gemini test failed: google.generativeai not installed")
         return False
     
     client = get_gemini_client()
     if not client:
+        print("Gemini test failed: missing API key in st.secrets['gemini_api_key'] or env GEMINI_API_KEY")
         return False
     
     try:
