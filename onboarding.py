@@ -103,27 +103,23 @@ def show_onboarding_modal():
         submitted = st.form_submit_button("✅ Complete Setup & Start Tracking!", use_container_width=True)
         
         if submitted:
-            # Validate responses
-            if not responses.get('main_habit', '').strip():
+            # Basic validation
+            is_valid = True
+            if not all(responses.get(field, '').strip() for field in ['main_habit', 'why_now', 'success_factor']):
                 st.error("Please enter your main habit.")
-                return False
-            
-            if not responses.get('biggest_obstacle'):
-                st.error("Please select your biggest obstacle.")
-                return False
-            
-            if not responses.get('why_now', '').strip():
-                st.error("Please tell us why now.")
-                return False
-            
-            if not responses.get('success_factor', '').strip():
-                st.error("Please enter one success factor.")
-                return False
-            
-            # Store in session state for caller to use
-            st.session_state['onboarding_responses'] = responses
-            return True
-    
+                is_valid = False
+
+            if not responses.get('life_goals'):
+                st.error("Please select at least one life goal.")
+                is_valid = False
+
+            if is_valid:
+                # Store in session state for the caller to process
+                st.session_state['onboarding_responses'] = responses
+                # Set a flag to indicate successful submission
+                st.session_state['onboarding_submitted'] = True
+                st.rerun() # Rerun to allow the calling script to handle the submission
+
     return False
 
 
