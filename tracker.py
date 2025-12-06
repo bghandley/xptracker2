@@ -566,17 +566,10 @@ def render_guided_setup():
         st.markdown("**Need goal ideas?** AI can analyze your profile to suggest high-impact goals.")
         if st.button("✨ Generate Goal Ideas"):
             with st.spinner("Analyzing profile..."):
-                goal_recs, error_msg = generate_goal_recommendations_gemini(profile)
+                goal_recs = generate_goal_recommendations_gemini(profile)
                 if not goal_recs:
                     goal_recs = generate_goal_recommendations(profile)
-                    if error_msg:
-                        if "API key" in error_msg or "not found" in error_msg:
-                            st.warning(f"Gemini unavailable ({error_msg}). Please add `gemini_api_key` to your Streamlit Secrets (Settings > Secrets) to enable AI features.")
-                        else:
-                            st.warning(f"Gemini error: {error_msg}. Using standard recommendations.")
-                    else:
-                        st.warning("Gemini returned no results; using standard recommendations.")
-
+                    st.warning("Gemini unavailable; using standard recommendations.")
                 st.session_state["goal_recs"] = goal_recs
 
         goal_recs = st.session_state.get("goal_recs", [])

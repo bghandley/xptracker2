@@ -4,8 +4,8 @@ Generates personalized goal ideas using Google Gemini, with deterministic fallba
 """
 
 import json
-from typing import Dict, List, Any, Optional, Tuple
-from coaching_emails import get_gemini_client, get_gemini_status
+from typing import Dict, List, Any, Optional
+from coaching_emails import get_gemini_client
 
 def _clean_json_block(text: str) -> str:
     """Strip fences/markdown from model responses to get JSON."""
@@ -22,7 +22,7 @@ def _clean_json_block(text: str) -> str:
 def generate_goal_recommendations_gemini(
     profile: Dict[str, Any],
     extra_context: Dict[str, Any] = None
-) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+) -> List[Dict[str, Any]]:
     """
     Generate personalized goal ideas using Gemini.
 
@@ -31,15 +31,11 @@ def generate_goal_recommendations_gemini(
         extra_context: Optional extra user input (e.g., specific area of focus)
 
     Returns:
-        Tuple: (List of dicts, error_message_string)
-        - If successful: ([...], None)
-        - If failed: ([], "Error reason")
+        List of dicts: [{"name": "Run a Marathon", "category": "Health", "reason": "..."}]
     """
     client = get_gemini_client()
     if not client:
-        # Check why it failed
-        ok, msg, _ = get_gemini_status()
-        return [], msg or "Unknown Gemini error"
+        return []
 
     life_goals = profile.get("life_goals", []) or ["General Improvement"]
     why_now = profile.get("why_now", "To get better.")
@@ -91,11 +87,11 @@ Rules:
             if isinstance(item, dict) and "name" in item and "category" in item:
                 valid_recs.append(item)
 
-        return valid_recs, None
+        return valid_recs
 
     except Exception as e:
         print(f"Gemini goal rec error: {e}")
-        return [], str(e)
+        return []
 
 def generate_goal_recommendations(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Deterministic fallback for goal recommendations."""
