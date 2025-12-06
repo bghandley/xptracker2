@@ -9,6 +9,7 @@ import plotly.express as px
 from storage import get_storage, validate_email
 from email_utils import send_email
 import notifications
+from coaching_emails import get_gemini_client
 import urllib.parse
 import os
 from onboarding import (
@@ -340,6 +341,102 @@ def _chronotype_anchor(chronotype: str) -> str:
     return "midday anchor"
 
 
+def _clean_json_block(text: str) -> str:
+    """Strip fences/markdown from model responses to get JSON."""
+    cleaned = text.strip()
+    if "```" in cleaned:
+        # Prefer explicit json fences
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json", 1)[-1]
+        else:
+            cleaned = cleaned.split("```", 1)[-1]
+        cleaned = cleaned.split("```", 1)[0]
+    return cleaned
+
+
+def _parse_gemini_habit_recs(raw: str, default_goal: str, default_xp: int) -> List[Dict[str, Any]]:
+    """Parse Gemini JSON payload into habit rec format."""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return []
+
+    recs: List[Dict[str, Any]] = []
+    for item in payload if isinstance(payload, list) else []:
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        goal = str(item.get("goal", default_goal)).strip() or default_goal
+        reason = str(item.get("reason", "")).strip() or "Fits your focus."
+        xp_val = item.get("xp", default_xp)
+        try:
+            xp_val = int(xp_val)
+        except Exception:
+            xp_val = default_xp
+        xp_val = max(5, min(200, xp_val))
+        recs.append({"name": name, "goal": goal, "xp": xp_val, "reason": reason})
+        if len(recs) >= 5:
+            break
+    return recs
+
+
+def generate_habit_recommendations_gemini(
+    profile: Dict[str, Any],
+    focus_goals: List[str],
+    effort_minutes: int,
+    cadence: str,
+    extra_context: Dict[str, Any],
+    existing_habits: List[str],
+) -> List[Dict[str, Any]]:
+    """Use Gemini for varied, hyper-personalized habit ideas."""
+    client = get_gemini_client()
+    if not client:
+        return []
+
+    goals = focus_goals or profile.get("life_goals", []) or ["General"]
+    default_goal = goals[0]
+    chronotype = profile.get("chronotype", "flexible")
+    anchor = _chronotype_anchor(chronotype)
+    obstacle = profile.get("biggest_obstacle", "")
+    why_now = profile.get("why_now", "")
+    success_factor = profile.get("success_factor", "")
+
+    prompt = f"""
+You are an elite habit coach. Propose 4–5 creative, specific habit ideas that feel varied (mix anchor ritual, prep, social/accountability, and micro-moves). Hyper-personalize to the inputs. Stay realistic and keep XP aligned to effort.
+
+Return ONLY JSON (no markdown, no prose) in this exact shape:
+[{{"name": "Do it", "goal": "Health", "xp": 15, "reason": "Why this works"}}]
+
+Goals to support: {', '.join(goals)}
+Cadence style: {cadence}
+Effort budget per habit: {effort_minutes} minutes
+Chronotype anchor: {anchor}
+Main habit: {profile.get("main_habit", "") or "n/a"}
+Biggest obstacle: {obstacle or "n/a"}
+Why now: {extra_context.get("why_this_week") or why_now or "n/a"}
+Success factor: {success_factor or "n/a"}
+Preferred vibe: {extra_context.get("vibe", "balanced")}
+Challenge level: {extra_context.get("challenge", "standard")}
+Energy/where: {extra_context.get("energy", "variable")} / {extra_context.get("environment", "flexible")}
+Anchor/trigger hint: {extra_context.get("anchor_hint", "fit to daily flow")}
+Avoid duplicating existing habits: {', '.join(existing_habits) or "none"}
+
+Rules:
+- Make each idea concrete with the cadence and anchor; avoid generic advice.
+- Vary formats (prep ritual, execution block, reflection, social check-in).
+- Keep xp close to effort_minutes unless a shorter micro-move is justified.
+"""
+
+    try:
+        response = client.generate_content(prompt)
+        cleaned = _clean_json_block(response.text)
+        recs = _parse_gemini_habit_recs(cleaned, default_goal, max(8, min(40, effort_minutes)))
+        return recs
+    except Exception as e:
+        print(f"Gemini habit rec error: {e}")
+        return []
+
+
 def generate_habit_recommendations(profile: Dict[str, Any], focus_goals: List[str], effort_minutes: int, cadence: str) -> List[Dict[str, Any]]:
     """Deterministic 'GPT-like' habit ideas tailored to onboarding answers."""
     goals = focus_goals or profile.get("life_goals", []) or ["General"]
@@ -468,10 +565,42 @@ def render_guided_setup():
         focus_goals = st.multiselect("Focus areas", options=goal_options, default=focus_default or goal_options)
         cadence = st.selectbox("Cadence style", ["Daily micro", "3x/week", "Weekly anchor"])
         effort_minutes = st.slider("Minutes per habit", min_value=5, max_value=45, value=15, step=5)
+        with st.expander("Tell me more so the AI can tailor ideas"):
+            why_this_week = st.text_input("What's the push right now?", value=profile.get("why_now", ""))
+            anchor_hint = st.text_input("Where should this fit?", placeholder="After coffee, before first meeting, after gym...")
+            chrono = profile.get("chronotype", "flexible")
+            energy_default = 0 if "morning" in chrono else 2 if "evening" in chrono else 3
+            energy = st.selectbox("Energy window", ["Morning focus", "Afternoon push", "Evening wind-down", "Mixed/variable"], index=energy_default)
+            vibe = st.selectbox("Coaching vibe", ["Gentle accountability", "Athlete mode", "Builder/creative", "Supportive friend"])
+            challenge = st.selectbox("Challenge level", ["Gentle start", "Standard", "Spicy"])
+            environment = st.selectbox("Environment", ["Home", "Office", "On the move", "Gym/outdoors", "Flexible"])
         gen_submit = st.form_submit_button("Generate personalized habit ideas")
     if gen_submit:
-        st.session_state["habit_rec_params"] = {"focus": focus_goals, "cadence": cadence, "effort": effort_minutes}
-        st.session_state["habit_recs"] = generate_habit_recommendations(profile, focus_goals, effort_minutes, cadence)
+        extra_context = {
+            "why_this_week": why_this_week,
+            "anchor_hint": anchor_hint,
+            "energy": energy,
+            "vibe": vibe,
+            "challenge": challenge,
+            "environment": environment,
+        }
+        st.session_state["habit_rec_params"] = {"focus": focus_goals, "cadence": cadence, "effort": effort_minutes, "extra": extra_context}
+        gemini_recs = generate_habit_recommendations_gemini(
+            profile,
+            focus_goals,
+            effort_minutes,
+            cadence,
+            extra_context,
+            existing_habits=list(data.get("habits", {}).keys()),
+        )
+        if gemini_recs:
+            st.session_state["habit_recs"] = gemini_recs
+            st.session_state["habit_recs_source"] = "gemini"
+            st.session_state["habit_recs_notice"] = ""
+        else:
+            st.session_state["habit_recs"] = generate_habit_recommendations(profile, focus_goals, effort_minutes, cadence)
+            st.session_state["habit_recs_source"] = "deterministic"
+            st.session_state["habit_recs_notice"] = "Gemini not configured or unavailable; using built-in coach ideas."
 
     recs = st.session_state.get("habit_recs", [])
     if recs:
@@ -490,10 +619,30 @@ def render_guided_setup():
                 fg = params.get("focus", focus_goals)
                 cd = params.get("cadence", cadence)
                 eff = params.get("effort", effort_minutes)
-                st.session_state["habit_recs"] = generate_habit_recommendations(profile, fg, eff, cd)
+                extra = params.get("extra", {})
+                gemini_recs = generate_habit_recommendations_gemini(
+                    profile,
+                    fg,
+                    eff,
+                    cd,
+                    extra,
+                    existing_habits=list(data.get("habits", {}).keys()),
+                )
+                if gemini_recs:
+                    st.session_state["habit_recs"] = gemini_recs
+                    st.session_state["habit_recs_source"] = "gemini"
+                    st.session_state["habit_recs_notice"] = ""
+                else:
+                    st.session_state["habit_recs"] = generate_habit_recommendations(profile, fg, eff, cd)
+                    st.session_state["habit_recs_source"] = "deterministic"
+                    st.session_state["habit_recs_notice"] = "Gemini not configured or unavailable; using built-in coach ideas."
                 st.rerun()
 
         st.write("Review, tweak, and add the habits you like:")
+        st.caption("Generated with Gemini" if st.session_state.get("habit_recs_source") == "gemini" else "Generated with rules-based coach")
+        notice = st.session_state.get("habit_recs_notice")
+        if notice:
+            st.info(notice)
         added = False
         updated_recs = []
         for i, rec in enumerate(recs):
