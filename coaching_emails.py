@@ -85,7 +85,7 @@ def generate_streak_celebration(user_id: str, habit_name: str, streak: int, xp_e
     client = get_gemini_client()
     if not client:
         # Return fallback message
-        return f"{streak}-day streak on '{habit_name}' — that's the thinking that changes the game. Most people don't. You are."
+        return f"{streak}-day streak on '{habit_name}' - that's the thinking that changes the game. Most people don't. You are."
     
     prompt = f"""You are a Price Pritchett-style quantum coach. Write a SHORT streak celebration (2 sentences max, under 50 words).
 
@@ -127,7 +127,7 @@ def generate_missed_day_encouragement(user_id: str, habit_name: str, days_missed
     client = get_gemini_client()
     if not client:
         # Return fallback message
-        return f"Missed a day? That's data, not a defeat. You had a {last_streak}-day streak — that's real. Now: what's the game to get it back?"
+        return f"Missed a day? That's data, not a defeat. You had a {last_streak}-day streak - that's real. Now: what's the game to get it back?"
     
     prompt = f"""You are a Price Pritchett-style quantum coach. Write a SHORT, supportive missed-day encouragement (2 sentences max, under 60 words).
 
