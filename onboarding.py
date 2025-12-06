@@ -118,7 +118,7 @@ def show_onboarding_modal():
                 st.session_state['onboarding_responses'] = responses
                 # Set a flag to indicate successful submission
                 st.session_state['onboarding_submitted'] = True
-                st.rerun() # Rerun to allow the calling script to handle the submission
+                return True
 
     return False
 
