@@ -25,14 +25,19 @@ def get_gemini_status() -> Tuple[bool, str, Optional[str]]:
     api_key = None
     source = None
 
-    # Try st.secrets first
-    if hasattr(st, 'secrets') and st.secrets.get('gemini_api_key'):
-        api_key = st.secrets.get('gemini_api_key')
-        source = "st.secrets['gemini_api_key']"
-    elif hasattr(st, 'secrets') and st.secrets.get('gemini api key'):
-        # Support older/typo key naming
-        api_key = st.secrets.get('gemini api key')
-        source = "st.secrets['gemini api key']"
+    # Try st.secrets first - Wrap in try/except to prevent StreamlitSecretNotFoundError
+    try:
+        if hasattr(st, 'secrets'):
+            if st.secrets.get('gemini_api_key'):
+                api_key = st.secrets.get('gemini_api_key')
+                source = "st.secrets['gemini_api_key']"
+            elif st.secrets.get('gemini api key'):
+                # Support older/typo key naming
+                api_key = st.secrets.get('gemini api key')
+                source = "st.secrets['gemini api key']"
+    except Exception:
+        # Secrets file might not exist, ignore and fall back to env
+        pass
 
     # Fall back to environment variable
     if not api_key:
