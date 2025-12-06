@@ -213,6 +213,16 @@ def job_streak_checks():
             logger.error(f"Error checking streaks for {user_id}: {e}")
 
 
+def job_drip_campaigns():
+    """Process pending drip campaign emails."""
+    logger.info("📧 Running drip campaign job...")
+    try:
+        from drip_campaigns import process_drip_campaigns
+        process_drip_campaigns()
+    except Exception as e:
+        logger.exception(f"Error in drip campaigns job: {e}")
+
+
 def schedule_jobs():
     """Schedule all automated notification jobs."""
     scheduler = get_scheduler()
@@ -232,7 +242,9 @@ def schedule_jobs():
         scheduler.add_job(job_weekly_summary, CronTrigger(day_of_week=6, hour=9, minute=0), id="weekly_summary", replace_existing=True)
         # streak checks 6:00
         scheduler.add_job(job_streak_checks, CronTrigger(hour=6, minute=0), id="streak_checks", replace_existing=True)
-        logger.info("Scheduled daily/weekly/streak jobs")
+        # drip campaigns 8:00 AM (check daily for pending emails)
+        scheduler.add_job(job_drip_campaigns, CronTrigger(hour=8, minute=0), id="drip_campaigns", replace_existing=True)
+        logger.info("Scheduled daily/weekly/streak/drip campaign jobs")
 
 
 def init_scheduler():
