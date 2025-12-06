@@ -9,7 +9,7 @@ import plotly.express as px
 from storage import get_storage, validate_email
 from email_utils import send_email
 import notifications
-from coaching_emails import get_gemini_client
+from coaching_emails import get_gemini_client, get_gemini_status
 import urllib.parse
 import os
 from onboarding import (
