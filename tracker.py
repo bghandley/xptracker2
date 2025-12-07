@@ -357,6 +357,9 @@ def get_leaderboard_stats(time_period: str = "all_time") -> List[tuple]:
     for user_id in users:
         storage = get_storage()
         user_data = storage.load_data(user_id)
+        prefs = user_data.get("preferences", {})
+        if prefs.get("private_mode"):
+            continue
         global_xp, _, _ = calculate_stats(user_data)
         
         # If filtering by time period, recalculate XP for that period only
@@ -1210,6 +1213,35 @@ def export_data_to_csv(data: Dict[str, Any]):
     
     return "".join(output)
 
+
+def export_tasks_to_ics(data: Dict[str, Any]) -> str:
+    """Export missions to ICS calendar format."""
+    tasks = data.get("tasks", [])
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//HeroicEveryday//EN",
+    ]
+    for task in tasks:
+        title = task.get("title", "Mission")
+        uid = task.get("id", "")
+        due = task.get("due_date")
+        if not due:
+            continue
+        # ICS date (all-day)
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"SUMMARY:{title}",
+            f"DESCRIPTION:{task.get('description', '')}",
+            f"DTSTART;VALUE=DATE:{due.replace('-', '')}",
+            f"DTEND;VALUE=DATE:{due.replace('-', '')}",
+            f"CATEGORIES:{task.get('goal', 'General')}",
+            "END:VEVENT",
+        ])
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines)
+
 # --- Helper: List existing users ---
 def get_existing_users() -> List[str]:
     """Scan for existing user data files and return list of user IDs."""
@@ -1695,6 +1727,21 @@ def main():
                 st.success("✅ Notifications enabled!")
             else:
                 st.info("🔇 Notifications disabled. You can re-enable them anytime.")
+            st.rerun()
+
+        # === PRIVACY TOGGLE ===
+        st.divider()
+        st.subheader("🛡️ Privacy")
+        private_mode = data.get("preferences", {}).get("private_mode", False)
+        new_private_mode = st.checkbox(
+            "Private mode (hide me from Leaderboard and sharing cues)",
+            value=private_mode,
+            help="When on, you won't appear on the leaderboard or in shared stats. Data still tracked for you."
+        )
+        if new_private_mode != private_mode:
+            data["preferences"]["private_mode"] = new_private_mode
+            save_data(data)
+            st.success("Privacy preference updated.")
             st.rerun()
 
         # === COACHING PROFILE EDITOR ===

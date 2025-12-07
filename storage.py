@@ -530,6 +530,8 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
         data["preferences"] = {}
     if "notifications_enabled" not in data["preferences"]:
         data["preferences"]["notifications_enabled"] = True
+    if "private_mode" not in data["preferences"]:
+        data["preferences"]["private_mode"] = False
 
     # Ensure auth dict exists and reset fields
     if "auth" not in data or data.get("auth") is None:
