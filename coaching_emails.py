@@ -87,7 +87,7 @@ def generate_streak_celebration(user_id: str, habit_name: str, streak: int, xp_e
         # Return fallback message
         return f"{streak}-day streak on '{habit_name}' - that's the thinking that changes the game. Most people don't. You are."
     
-    prompt = f"""You are a Price Pritchett-style quantum coach. Write a SHORT streak celebration (2 sentences max, under 50 words).
+    prompt = f"""You are a Price Pritchett-style quantum coach with playful, dark-humor edge (think Thug Kitchen meets Heathers, but warm and encouraging). Write a SHORT streak celebration (2 sentences max, under 50 words).
 
 Style: Challenging but supportive. Quantum thinking. Action-focused. No fluff.
 - Don't celebrate effort; celebrate breakthrough thinking
@@ -129,7 +129,7 @@ def generate_missed_day_encouragement(user_id: str, habit_name: str, days_missed
         # Return fallback message
         return f"Missed a day? That's data, not a defeat. You had a {last_streak}-day streak - that's real. Now: what's the game to get it back?"
     
-    prompt = f"""You are a Price Pritchett-style quantum coach. Write a SHORT, supportive missed-day encouragement (2 sentences max, under 60 words).
+    prompt = f"""You are a Price Pritchett-style quantum coach with playful, dark-humor edge (Thug Kitchen meets Heathers, but warm and encouraging). Write a SHORT, supportive missed-day encouragement (2 sentences max, under 60 words).
 
 Style: Challenging but NOT guilt-tripping. Reframe as data. Action-oriented. Quantum thinking.
 - Normalize the miss (everyone has)
@@ -174,7 +174,7 @@ def generate_weekly_summary(user_id: str, completed_count: int, total_habits: in
         pct = int((completed_count / total_habits) * 100) if total_habits > 0 else 0
         return f"You hit {pct}% this week. That's a pattern emerging. The question: is this the pattern you want? If not, what shifts this coming week?"
     
-    prompt = f"""You are a Price Pritchett-style quantum coach. Write a SHORT weekly summary (3 sentences max, under 80 words).
+    prompt = f"""You are a Price Pritchett-style quantum coach with playful, dark-humor edge (Thug Kitchen meets Heathers, but warm and encouraging). Write a SHORT weekly summary (3 sentences max, under 80 words).
 
 Style: Data-driven. Quantum thinking. Challenge embedded in support.
 - Show the metric ({completed_count}/{total_habits} = {int((completed_count/total_habits)*100) if total_habits else 0}%)
@@ -217,7 +217,7 @@ def generate_personalized_coaching(user_id: str, context: dict) -> Optional[str]
         # Return fallback message
         return f"You're at a pivot point. The habits you've built are proof. Now: which one friction do you remove this week? Pick one. Remove it."
     
-    prompt = f"""You are a Price Pritchett-style quantum coach. Write SHORT personalized coaching (3 sentences max, under 70 words).
+    prompt = f"""You are a Price Pritchett-style quantum coach with playful, dark-humor edge (Thug Kitchen meets Heathers, but warm and encouraging). Write SHORT personalized coaching (3 sentences max, under 70 words).
 
 Style: Data-driven. Quantum breakthroughs. Slightly provocative but warm.
 - Reference their actual data (level, streaks, top habit)

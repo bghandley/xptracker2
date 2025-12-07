@@ -1515,7 +1515,7 @@ def main():
     render_guided_setup()
 
     # --- Tabs ---
-    tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Hero Log", "📜 Mission Deck", "📔 Journal", "📊 Signals", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
+    tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin, tab_about = st.tabs(["📅 Hero Log", "📜 Mission Deck", "📔 Journal", "📊 Signals", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin", "ℹ️ About & FAQ"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -2290,6 +2290,51 @@ def main():
             with col3:
                 avg_xp = sum([xp for _, xp in leaderboard]) // len(leaderboard) if leaderboard else 0
                 st.metric("Average XP", f"{avg_xp:,}")
+
+    # === TAB 9: ABOUT & FAQ ===
+    with tab_about:
+        st.header("\u2139\ufe0f About Heroic Everyday")
+        st.markdown("""
+Welcome to Heroic Everyday — a clean, business-friendly tracker with playful edge. Think **professional playfulness**: punchy, smart, zero B.S., and rooting for you.
+
+**What this is:** A daily operating system to log your wins (Hero Log), ship missions (Mission Deck), and keep momentum.
+**How it talks:** Encouraging with a wink, dark-humor edge (Thug Kitchen meets Heathers), never mean, always moving you forward.
+""")
+
+        st.subheader("FAQ")
+        st.markdown("""
+**How do I log progress?**  
+- Check off Upgrades in the **Hero Log**. Streaks fuel your Momentum Meter.
+- Add one-off work to the **Mission Deck**; hit Done for XP.
+
+**How are emails/AI responses written?**  
+- Playfully direct, smart humor, warm underneath. No fluff, no lecture.
+
+**Can I change my goals or timezone?**  
+- Yes, edit your profile in **Profile & Badges**. Timezone uses familiar cities (e.g., New York/ET).
+
+**What if I miss a day?**  
+- You get a nudge, not a scolding. Restart with a 2-minute version.
+
+**Where's my data stored?**  
+- Firebase (per your credentials).""")
+
+        st.subheader("Usage Guide")
+        st.markdown("""
+1) **Set Your Direction**: Add 1–3 goals; keep it lean.  
+2) **Build Upgrades**: Small daily habits tied to those goals.  
+3) **Ship Missions**: Create focused tasks; mark them Done for XP.  
+4) **Check the Signals**: Momentum comes from streaks; guard them.  
+5) **Ask the Coach**: Use AI Coach for quick tactics; expect witty, actionable replies.
+
+Taglines to remember:
+- "Consistency beats intensity—ask literally any superhero."
+- "Every tap here is future-you whispering: nice move."
+- "You did the thing. Most don't."
+- "Micro-wins are still wins. Ask compounding interest."
+- "Welcome back, Hero. Ready for today's nonsense?"
+- "Look at you—stacking XP like it's your part-time job."
+""")
 
     # === TAB 7: ADMIN ===
     with tab_admin:
