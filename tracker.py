@@ -762,6 +762,9 @@ def render_guided_setup():
     suggested_goal = (profile.get("life_goals") or [""])[0] or "First Goal"
     suggested_habit = profile.get("main_habit", "")
     goal_options = get_active_goals(data) or ["General"]
+    # Micro-habit nudges
+    st.info("Keep it atomic: 2-10 minutes, verb-first, so even a chaotic day can't kill it.")
+    contexts = ["Work", "Personal", "Health", "Creativity", "Admin"]
 
     # --- STEP 1: GOAL DISCOVERY ---
     with st.expander("Step 1: Discover High-Impact Goals", expanded=True):
@@ -797,7 +800,7 @@ def render_guided_setup():
     st.markdown("### Step 2: Build Habits")
 
     # Habit recommender (deterministic, based on onboarding answers)
-    st.markdown("**Need habit ideas?** I'll propose 3–4 habits across your goals.")
+    st.markdown("**Need habit ideas?** I'll propose 3-4 habits across your goals.")
     with st.form("habit_rec_settings", clear_on_submit=False):
         focus_default = [g for g in profile.get("life_goals", []) if g in goal_options] or goal_options[:2]
         focus_goals = st.multiselect("Focus areas", options=goal_options, default=focus_default or goal_options)
@@ -891,6 +894,8 @@ def render_guided_setup():
             goal_choice = st.selectbox("Goal", options=goal_choices, index=goal_choices.index(rec["goal"]), key=f"rec_goal_{i}")
             xp_val = st.number_input("XP", min_value=5, max_value=200, value=int(rec["xp"]), step=5, key=f"rec_xp_{i}")
             desc_val = st.text_area("Description", value=rec.get("reason", ""), height=64, key=f"rec_desc_{i}")
+            context_choice = st.selectbox("Context", options=contexts, index=contexts.index(rec.get("context", contexts[0])) if rec.get("context") in contexts else 0, key=f"rec_ctx_{i}")
+            cadence_choice = st.selectbox("Cadence", options=["Daily", "3x/Week", "Weekly", "One-Off"], key=f"rec_cadence_{i}")
             pick = st.checkbox("Add this habit", value=True, key=f"rec_pick_{i}")
             add_task_flag = st.checkbox("Also add as mission", value=False, key=f"rec_task_{i}")
             if add_task_flag:
@@ -903,6 +908,8 @@ def render_guided_setup():
                 "goal": goal_choice,
                 "xp": int(xp_val),
                 "description": desc_val.strip() or rec.get("reason", ""),
+                "context": context_choice,
+                "cadence": cadence_choice,
                 "pick": pick,
                 "add_task": add_task_flag,
                 "task_priority": task_priority,
@@ -921,11 +928,11 @@ def render_guided_setup():
                     goal_options.append(rec["goal"])
 
                 if rec["pick"]:
-                    add_new_habit(rec["name"].strip(), rec["xp"], rec["goal"], rec.get("description", ""))
+                    add_new_habit(rec["name"].strip(), rec["xp"], rec["goal"], rec.get("description", ""), rec.get("context", "General"), rec.get("cadence", "Daily"))
                     added_count += 1
 
                 if rec.get("add_task"):
-                    add_task(rec["name"].strip(), rec.get("description", ""), rec["xp"], rec["goal"], rec.get("task_priority", "Medium"), None)
+                    add_task(rec["name"].strip(), rec.get("description", ""), rec["xp"], rec["goal"], rec.get("task_priority", "Medium"), None, rec.get("context", "General"), rec.get("cadence", "One-Off"))
                     task_added_count += 1
 
             if added_count or task_added_count:
@@ -958,10 +965,12 @@ def render_guided_setup():
         habit_desc = st.text_area("Description (optional)", height=68, placeholder="e.g. 'Read 10 pages before bed'")
         habit_goal = st.selectbox("Link to goal", options=goal_options, index=default_goal_index)
         habit_xp = st.number_input("XP reward", min_value=5, max_value=200, value=10, step=5)
+        habit_context = st.selectbox("Context", options=contexts, index=0)
+        habit_cadence = st.selectbox("Cadence", options=["Daily", "3x/Week", "Weekly", "One-Off"])
         habit_submit = st.form_submit_button("Create Habit")
     if habit_submit:
         if habit_name.strip():
-            add_new_habit(habit_name.strip(), int(habit_xp), habit_goal, habit_desc.strip())
+            add_new_habit(habit_name.strip(), int(habit_xp), habit_goal, habit_desc.strip(), habit_context, habit_cadence)
             st.session_state["guided_setup"] = False
             st.success(f"Habit added: {habit_name.strip()}")
             st.rerun()
@@ -1019,10 +1028,10 @@ def restore_goal(goal_name: str):
     save_data(data)
     st.success(f"Restored goal: {goal_name}")
 
-def add_new_habit(name: str, xp: int, goal: str, description: str = ""):
+def add_new_habit(name: str, xp: int, goal: str, description: str = "", context: str = "General", cadence: str = "Daily"):
     data = load_data()
     if name and name not in data["habits"]:
-        data["habits"][name] = {"xp": xp, "active": True, "goal": goal, "description": description}
+        data["habits"][name] = {"xp": xp, "active": True, "goal": goal, "description": description, "context": context, "cadence": cadence}
         save_data(data)
         st.success(f"Added habit: {name}")
     elif name in data["habits"]:
@@ -1094,7 +1103,7 @@ def toggle_habit(habit_name: str, date_str: str):
 
 # --- Task Actions ---
 
-def add_task(title, desc, xp, goal, priority, due_date):
+def add_task(title, desc, xp, goal, priority, due_date, context="General", cadence="One-Off"):
     data = load_data()
     new_task = {
         "id": str(uuid.uuid4()),
@@ -1105,7 +1114,9 @@ def add_task(title, desc, xp, goal, priority, due_date):
         "priority": priority,
         "due_date": due_date.isoformat() if due_date else None,
         "status": "Todo",
-        "created_at": datetime.datetime.now().isoformat()
+        "created_at": datetime.datetime.now().isoformat(),
+        "context": context,
+        "cadence": cadence
     }
     data["tasks"].append(new_task)
     save_data(data)
@@ -1586,6 +1597,8 @@ def main():
                 summary_data.append({
                     "Habit": h,
                     "Goal": data["habits"][h].get("goal", "General"),
+                    "Context": data["habits"][h].get("context", "General"),
+                    "Cadence": data["habits"][h].get("cadence", "Daily"),
                     "Level": habit_stats[h]['level'],
                     "Status": status,
                     "Base XP": data["habits"][h]["xp"],
@@ -1755,6 +1768,8 @@ def main():
                 with t_col1:
                     task_title = st.text_input("Mission Title")
                     task_goal = st.selectbox("Goal", options=active_goals, key="task_goal")
+                    task_context = st.selectbox("Context", options=["Work", "Personal", "Health", "Creativity", "Admin"], key="task_context")
+                    task_cadence = st.selectbox("Cadence", options=["One-Off", "Daily", "3x/Week", "Weekly"], key="task_cadence")
                     task_priority = st.selectbox("Priority", ["High", "Medium", "Low"])
                 with t_col2:
                     task_xp = st.number_input("XP Reward", value=50, step=10)
@@ -1764,7 +1779,7 @@ def main():
                 
                 if st.form_submit_button("Add Mission"):
                     if task_title:
-                        add_task(task_title, task_desc, task_xp, task_goal, task_priority, task_due)
+                        add_task(task_title, task_desc, task_xp, task_goal, task_priority, task_due, task_context, task_cadence)
                         st.success("Mission Added!")
                         st.rerun()
                     else:
@@ -1807,6 +1822,8 @@ def main():
                 desc = st.text_area("Description", value=rec.get("description", ""), height=80, key=f"task_rec_desc_{i}")
                 goal_choices = list(dict.fromkeys(active_goals + [rec.get("goal", "General")]))
                 goal_choice = st.selectbox("Goal", options=goal_choices, index=goal_choices.index(rec.get("goal", "General")), key=f"task_rec_goal_{i}")
+                ctx_choice = st.selectbox("Context", options=["Work", "Personal", "Health", "Creativity", "Admin"], index=0, key=f"task_rec_ctx_{i}")
+                cad_choice = st.selectbox("Cadence", options=["One-Off", "Daily", "3x/Week", "Weekly"], index=0, key=f"task_rec_cad_{i}")
                 priority_default = rec.get("priority", "Medium") if rec.get("priority", "Medium") in ["High", "Medium", "Low"] else "Medium"
                 priority = st.selectbox("Priority", ["High", "Medium", "Low"], index=["High", "Medium", "Low"].index(priority_default), key=f"task_rec_priority_{i}")
                 xp_val = st.number_input("XP Reward", min_value=5, max_value=200, value=int(rec.get("xp", 50)), step=5, key=f"task_rec_xp_{i}")
@@ -1823,6 +1840,8 @@ def main():
                     "title": title,
                     "description": desc,
                     "goal": goal_choice,
+                    "context": ctx_choice,
+                    "cadence": cad_choice,
                     "priority": priority,
                     "xp": int(xp_val),
                     "due_date": due_date,
@@ -1833,7 +1852,7 @@ def main():
                 added_count = 0
                 for rec in updated_tasks:
                     if rec["pick"] and rec["title"].strip():
-                        add_task(rec["title"].strip(), rec["description"], rec["xp"], rec["goal"], rec["priority"], rec["due_date"])
+                        add_task(rec["title"].strip(), rec["description"], rec["xp"], rec["goal"], rec["priority"], rec["due_date"], rec.get("context", "General"), rec.get("cadence", "One-Off"))
                         added_count += 1
                 if added_count:
                     st.session_state["task_recs"] = []
@@ -1866,7 +1885,7 @@ def main():
                                 st.rerun()
                         with tc2:
                             st.markdown(f"**{p_icon} {task['title']}**")
-                            st.caption(f"{task['goal']} • Due: {task['due_date'] if task['due_date'] else 'No Date'}")
+                            st.caption(f"{task['goal']} • {task.get('context', 'General')} • {task.get('cadence', 'One-Off')} • Due: {task['due_date'] if task['due_date'] else 'No Date'}")
                         with tc3:
                             st.markdown(f"**+{task['xp']} XP**")
                         with tc4:
