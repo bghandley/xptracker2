@@ -43,6 +43,16 @@ DEFAULT_DATA = {
         "timing_issues": {},  # habit -> issue notes
         "last_insight_date": None,  # When was last coaching insight generated?
     },
+    # Starter sprint
+    "starter_sprint": {
+        "created_at": None,
+        "completed_steps": []
+    },
+    # Reward milestones
+    "rewards": {
+        "milestones": [500, 1000],
+        "last_prompted": 0
+    }
 }
 
 class StorageProvider:
@@ -532,6 +542,19 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
         data["preferences"]["notifications_enabled"] = True
     if "private_mode" not in data["preferences"]:
         data["preferences"]["private_mode"] = False
+
+    # Ensure starter sprint exists
+    if "starter_sprint" not in data:
+        data["starter_sprint"] = {"created_at": None, "completed_steps": []}
+
+    # Ensure rewards structure exists
+    if "rewards" not in data:
+        data["rewards"] = {"milestones": [500, 1000], "last_prompted": 0}
+    else:
+        if "milestones" not in data["rewards"]:
+            data["rewards"]["milestones"] = [500, 1000]
+        if "last_prompted" not in data["rewards"]:
+            data["rewards"]["last_prompted"] = 0
 
     # Ensure auth dict exists and reset fields
     if "auth" not in data or data.get("auth") is None:

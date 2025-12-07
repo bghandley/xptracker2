@@ -761,6 +761,8 @@ def render_guided_setup():
     st.divider()
     st.subheader("Guided Setup: create your first goal and habit")
     st.caption("We pre-filled suggestions from your onboarding so you can start tracking right away.")
+    # Starter sprint note
+    st.info("Starter Sprint: nail one micro-upgrade + one mission for 7 days. Keep it tiny, keep it moving.")
 
     suggested_goal = (profile.get("life_goals") or [""])[0] or "First Goal"
     suggested_habit = profile.get("main_habit", "")
@@ -1434,6 +1436,16 @@ def main():
     global_xp, habit_stats, earned_badges = calculate_stats(data)
     current_level, xp_in_level, level_progress = calculate_level(global_xp)
     current_rank = get_rank(current_level)
+    # Milestone prompt
+    rewards = data.get("rewards", {})
+    milestones = sorted(rewards.get("milestones", []))
+    last_prompted = rewards.get("last_prompted", 0)
+    next_hits = [m for m in milestones if m > last_prompted and m <= global_xp]
+    if next_hits:
+        hit = max(next_hits)
+        st.success(f"🎁 Milestone hit: {hit} XP. Claim your reward (you set it).")
+        data.setdefault("rewards", {})["last_prompted"] = hit
+        save_data(data)
 
     if current_level >= 10 and "veteran" not in earned_badges:
         earned_badges.append("veteran")
@@ -1570,13 +1582,27 @@ def main():
             st.stop()
         
         st.header(f"Hero Log: {today_str}")
+        # Filters
+        filter_cols = st.columns(2)
+        with filter_cols[0]:
+            filter_context = st.selectbox("Filter by context", options=["All", "Work", "Personal", "Health", "Creativity", "Admin"], index=0)
+        with filter_cols[1]:
+            filter_cadence = st.selectbox("Filter by cadence", options=["All", "Daily", "3x/Week", "Weekly", "One-Off"], index=0)
         
         active_habits_dict = {k: v for k, v in data["habits"].items() if v.get("active", True)}
 
         if not active_habits_dict:
             st.info("No active quests! Check the sidebar to add new ones.")
         else:
-            sorted_habits = sorted(active_habits_dict.items(), key=lambda x: x[1].get("goal", "General"))
+            # Apply filters
+            filtered = []
+            for name, details in active_habits_dict.items():
+                if filter_context != "All" and details.get("context") != filter_context:
+                    continue
+                if filter_cadence != "All" and details.get("cadence", "Daily") != filter_cadence:
+                    continue
+                filtered.append((name, details))
+            sorted_habits = sorted(filtered, key=lambda x: x[1].get("goal", "General"))
             
             for habit_name, details in sorted_habits:
                 is_completed = habit_name in data["completions"].get(today_str, [])
@@ -1683,6 +1709,26 @@ def main():
         st.write(f"**Current Level:** {current_level}")
         st.write(f"**Total XP:** {global_xp}")
         st.write(f"**Rank:** {current_rank}")
+
+        # Rewards / milestones
+        st.divider()
+        st.subheader("🎁 Rewards & Milestones")
+        rewards = data.get("rewards", {})
+        milestones = rewards.get("milestones", [500, 1000])
+        last_prompted = rewards.get("last_prompted", 0)
+        milestone_input = st.text_input("Milestones (comma-separated XP)", value=",".join(str(m) for m in milestones))
+        if st.button("Save Milestones"):
+            try:
+                parsed = [int(x.strip()) for x in milestone_input.split(",") if x.strip().isdigit()]
+                if parsed:
+                    data["rewards"]["milestones"] = parsed
+                    save_data(data)
+                    st.success("Milestones updated.")
+                else:
+                    st.warning("Enter at least one number.")
+            except Exception:
+                st.error("Invalid milestones; please enter numbers separated by commas.")
+        st.caption(f"Last milestone prompt at {last_prompted} XP.")
 
         st.divider()
         st.subheader("📧 Email Settings")
@@ -1908,12 +1954,19 @@ def main():
                 else:
                     st.info("Select at least one mission to add.")
 
-        # Filter Tabs for Tasks
+        # Filters and Tabs for Tasks
+        filter_tasks_context = st.selectbox("Filter missions by context", options=["All", "Work", "Personal", "Health", "Creativity", "Admin"], index=0)
+        filter_tasks_cadence = st.selectbox("Filter missions by cadence", options=["All", "One-Off", "Daily", "3x/Week", "Weekly"], index=0)
+
         t_tab_active, t_tab_done = st.tabs(["Active Missions", "Completed Missions"])
         
         # ACTIVE TASKS
         with t_tab_active:
             active_tasks = [t for t in data["tasks"] if t["status"] == "Todo"]
+            if filter_tasks_context != "All":
+                active_tasks = [t for t in active_tasks if t.get("context", "General") == filter_tasks_context]
+            if filter_tasks_cadence != "All":
+                active_tasks = [t for t in active_tasks if t.get("cadence", "One-Off") == filter_tasks_cadence]
             if not active_tasks:
                 st.info("No active missions. Good job... or get to work!")
             else:
