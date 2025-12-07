@@ -62,7 +62,7 @@ def get_gemini_client(debug: bool = False):
 
     try:
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-2.5-flash')
+        return genai.GenerativeModel('gemini-3-pro-preview')
     except Exception as e:
         if debug:
             print(f"Gemini configure error: {e}")
