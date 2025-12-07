@@ -450,8 +450,19 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
 def get_storage() -> StorageProvider:
     """Factory to get the configured storage provider."""
     # Check for Firebase config or flag
-    use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
-    if use_firebase:
+    use_firebase_env = os.getenv("USE_FIREBASE", "false").lower() == "true"
+    use_firebase_secret = False
+    try:
+        if hasattr(st, "secrets"):
+            storage_type = str(getattr(st.secrets, "storage_type", "") or st.secrets.get("storage_type", "")).lower()
+            if storage_type == "firebase":
+                use_firebase_secret = True
+            elif "firebase" in st.secrets:
+                # Assume firebase config present implies firebase usage
+                use_firebase_secret = True
+    except Exception:
+        use_firebase_secret = False
+
+    if use_firebase_env or use_firebase_secret:
         return FirebaseStorage()
-    else:
-        return LocalStorage()
+    return LocalStorage()
