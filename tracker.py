@@ -32,9 +32,71 @@ except ImportError:
 
 # --- Configuration & Constants ---
 st.set_page_config(
-    page_title="Level Up: XP Tracker",
-    page_icon="⚔️",
+    page_title="Heroic Everyday",
+    page_icon="⚡",
     layout="wide"
+)
+
+# --- Obsidian Luxe theme ---
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Libre+Baskerville:wght@400;700&display=swap');
+    :root {
+        --bg-obsidian: #1A1A1D;
+        --gold: #EDCFA9;
+        --bronze: #C5A880;
+        --ash: #333533;
+        --copper: #AA5A25;
+        --pearl: #F8F1F1;
+    }
+    .stApp {
+        background-color: var(--bg-obsidian);
+        color: var(--pearl);
+    }
+    .stApp, .stMarkdown, .css-18e3th9, .css-1d391kg {
+        font-family: 'Libre Baskerville', serif;
+    }
+    h1, h2, h3, h4, h5, h6, .stTabs [data-baseweb="tab"] {
+        font-family: 'Cinzel', serif !important;
+        letter-spacing: 0.5px;
+        color: var(--pearl);
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: var(--ash);
+        color: var(--pearl);
+        border-radius: 6px;
+        margin-right: 6px;
+        padding: 8px 12px;
+        border: 1px solid var(--bronze);
+    }
+    .stTabs [aria-selected="true"] {
+        background: var(--gold) !important;
+        color: #1A1A1D !important;
+    }
+    .stButton>button, .stDownloadButton>button {
+        background: linear-gradient(135deg, var(--gold), var(--bronze));
+        color: #1A1A1D;
+        border: 0;
+        border-radius: 6px;
+        font-family: 'Cinzel', serif;
+        font-weight: 600;
+    }
+    .stTextInput>div>input, .stSelectbox>div>div>select, .stTextArea>div>textarea, .stNumberInput input, .stDateInput input {
+        background: var(--ash);
+        color: var(--pearl);
+        border-radius: 6px;
+        border: 1px solid var(--bronze);
+    }
+    .stMetric {
+        background: var(--ash);
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid var(--bronze);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 XP_PER_LEVEL = 200
@@ -1416,7 +1478,7 @@ def main():
                     st.rerun()
 
     # --- Header Stats ---
-    st.title("🛡️ Hero's Journal")
+    st.title("🛡️ Hero Log")
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -1426,7 +1488,7 @@ def main():
     with col2:
         active_count = len([h for h, d in data["habits"].items() if d.get("active", True)])
         pending_tasks = len([t for t in data["tasks"] if t["status"] == "Todo"])
-        st.metric("Active Quests", f"{active_count} Habits / {pending_tasks} Missions")
+        st.metric("Active Upgrades", f"{active_count} Habits / {pending_tasks} Missions")
 
     st.markdown("---")
 
@@ -1453,7 +1515,7 @@ def main():
     render_guided_setup()
 
     # --- Tabs ---
-    tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Daily Quests", "📜 Mission Log", "📔 Journal", "📊 Reports", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
+    tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin = st.tabs(["📅 Hero Log", "📜 Mission Deck", "📔 Journal", "📊 Signals", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin"])
 
     # === TAB 1: DAILY HABITS ===
     with tab_habits:
@@ -1464,7 +1526,7 @@ def main():
             st.warning("⚠️ Please log in to view your daily quests.")
             st.stop()
         
-        st.header(f"Daily Quests: {today_str}")
+        st.header(f"Hero Log: {today_str}")
         
         active_habits_dict = {k: v for k, v in data["habits"].items() if v.get("active", True)}
 

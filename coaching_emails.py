@@ -93,7 +93,7 @@ Style: Challenging but supportive. Quantum thinking. Action-focused. No fluff.
 - Don't celebrate effort; celebrate breakthrough thinking
 - Reference that most people quit; they're not
 - Make it about elevation, not maintenance
-- Slightly provocative edge, but warm underneath
+- Think thug kitchen cookbook meets the movie Heathers, but warm underneath
 
 Streak: {streak} days on '{habit_name}'
 

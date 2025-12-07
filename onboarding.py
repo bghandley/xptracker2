@@ -8,6 +8,22 @@ import streamlit as st
 from typing import Dict, Any, Optional
 from storage import get_storage
 
+# Timezone choices (label, tzid)
+TIMEZONE_CHOICES = [
+    ("New York (ET)", "America/New_York"),
+    ("Chicago (CT)", "America/Chicago"),
+    ("Denver (MT)", "America/Denver"),
+    ("Los Angeles (PT)", "America/Los_Angeles"),
+    ("London (GMT/BST)", "Europe/London"),
+    ("Paris (CET/CEST)", "Europe/Paris"),
+    ("Dubai (GST)", "Asia/Dubai"),
+    ("Mumbai (IST)", "Asia/Kolkata"),
+    ("Singapore (SGT)", "Asia/Singapore"),
+    ("Tokyo (JST)", "Asia/Tokyo"),
+    ("Sydney (AET)", "Australia/Sydney"),
+    ("UTC", "UTC"),
+]
+
 # Questions for the onboarding flow
 ONBOARDING_QUESTIONS = [
     {
@@ -40,7 +56,7 @@ ONBOARDING_QUESTIONS = [
         "id": "timezone",
         "question": "🌍 What's your timezone?",
         "type": "select",
-        "options": ["UTC-12", "UTC-11", "UTC-10", "UTC-9", "UTC-8", "UTC-7", "UTC-6", "UTC-5", "UTC-4", "UTC-3", "UTC-2", "UTC-1", "UTC", "UTC+1", "UTC+2", "UTC+3", "UTC+4", "UTC+5", "UTC+6", "UTC+7", "UTC+8", "UTC+9", "UTC+10", "UTC+11", "UTC+12"],
+        "options": [label for label, _ in TIMEZONE_CHOICES],
         "help": "For scheduling your daily digest and drip emails."
     },
     {
@@ -81,12 +97,23 @@ def show_onboarding_modal():
                 )
             
             elif q['type'] == 'select':
-                responses[q['id']] = st.selectbox(
-                    label=q['id'],
-                    label_visibility="collapsed",
-                    options=q['options'],
-                    key=f"onboard_{q['id']}"
-                )
+                if q['id'] == 'timezone':
+                    tz_options = [tz for _, tz in TIMEZONE_CHOICES]
+                    tz_labels = {tz: label for label, tz in TIMEZONE_CHOICES}
+                    responses[q['id']] = st.selectbox(
+                        label=q['id'],
+                        label_visibility="collapsed",
+                        options=tz_options,
+                        format_func=lambda tz: tz_labels.get(tz, tz),
+                        key=f"onboard_{q['id']}"
+                    )
+                else:
+                    responses[q['id']] = st.selectbox(
+                        label=q['id'],
+                        label_visibility="collapsed",
+                        options=q['options'],
+                        key=f"onboard_{q['id']}"
+                    )
             
             elif q['type'] == 'multiselect':
                 responses[q['id']] = st.multiselect(
@@ -223,10 +250,15 @@ def show_profile_editor(user_id: str) -> bool:
         )
         
         # Timezone
+        tz_options = [tz for _, tz in TIMEZONE_CHOICES]
+        tz_labels = {tz: label for label, tz in TIMEZONE_CHOICES}
+        current_tz = profile.get('timezone', 'UTC')
+        tz_index = tz_options.index(current_tz) if current_tz in tz_options else tz_options.index("UTC")
         timezone = st.selectbox(
             "Timezone",
-            options=["UTC-12", "UTC-11", "UTC-10", "UTC-9", "UTC-8", "UTC-7", "UTC-6", "UTC-5", "UTC-4", "UTC-3", "UTC-2", "UTC-1", "UTC", "UTC+1", "UTC+2", "UTC+3", "UTC+4", "UTC+5", "UTC+6", "UTC+7", "UTC+8", "UTC+9", "UTC+10", "UTC+11", "UTC+12"],
-            index=12 if profile.get('timezone', 'UTC') == 'UTC' else 0,
+            options=tz_options,
+            index=tz_index,
+            format_func=lambda tz: tz_labels.get(tz, tz),
             help="For scheduling daily digest"
         )
         
