@@ -1,6 +1,8 @@
 """
 Notifications System
 Manages notification triggers, history, and sending.
+Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 """
 
 import json

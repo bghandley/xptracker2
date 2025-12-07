@@ -5,6 +5,8 @@ Sends a single personalized daily email summarizing:
 - Current streaks
 - One reflection prompt
 - Adaptive coaching based on performance
+Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 
 This replaces per-completion notifications for a cleaner experience.
 """

@@ -2,6 +2,8 @@
 Drip Email Campaign System
 Automated onboarding and engagement emails for new users (first 30 days).
 Generated using Gemini AI with context-aware messaging.
+Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 """
 
 import json

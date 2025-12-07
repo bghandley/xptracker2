@@ -1,6 +1,7 @@
 """
 Coaching Engine - Pattern Detection & Adaptive Recommendations
 Analyzes user habits and creates personalized coaching recommendations after Day 14.
+Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
 """
 
 import json

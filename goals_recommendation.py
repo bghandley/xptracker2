@@ -1,6 +1,8 @@
 """
 Gemini Goal Recommendation Engine
 Generates personalized goal ideas using Google Gemini, with deterministic fallbacks.
+Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 """
 
 import json
@@ -25,6 +27,8 @@ def generate_goal_recommendations_gemini(
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
     Generate personalized goal ideas using Gemini.
+    Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 
     Args:
         profile: User onboarding profile (life_goals, why_now, biggest_obstacle, etc.)
@@ -61,6 +65,8 @@ def generate_goal_recommendations_gemini(
     prompt = f"""
 You are an expert life coach. Based on the user's profile, suggest 3-4 specific, high-impact high-level GOALS (not just habits, but the outcome/objective).
 The goals should be exciting, achievable, and directly address their "Why Now".
+Tone: Responses in style of Thug Kitchen Cookbook meets the movie Heathers, but warm underneath.
+
 
 Profile:
 {context_str}
