@@ -2310,18 +2310,55 @@ Welcome to Heroic Everyday — a clean, business-friendly tracker with playful e
 **How are emails/AI responses written?**  
 - Playfully direct, smart humor, warm underneath. No fluff, no lecture.
 
-**Can I change my goals or timezone?**  
-- Yes, edit your profile in **Profile & Badges**. Timezone uses familiar cities (e.g., New York/ET).
+**How many habits should I start with?**  
+- Start with one. Win for 10–14 days, then add another. Bricks → fortress.
+
+**How long does it take to build a habit?**  
+- 21–66 days; ~28 feels right. Reps beat time: 5 days done > 15 days planned.
 
 **What if I miss a day?**  
-- You get a nudge, not a scolding. Restart with a 2-minute version.
+- Nothing explodes. Just don’t miss two. Streak resets; progress doesn’t. Return = resilience.
+
+**How do I pick the right habit?**  
+- Small on your worst day, meaningful enough to care, crystal-clear “done.”  
+- “Read 5 minutes after coffee” beats “read more.”
+
+**How much time should it take?**  
+- Start under 2 minutes. Low friction = high consistency. Expand later.
+
+**How do I stack habits so they stick?**  
+- Anchor a new Upgrade to an existing routine: “after coffee, 5 pushups” or “after shutdown, write tomorrow’s plan.” Keep it tiny.
+
+**What’s the deal with XP and streaks?**  
+- XP = dopamine so your brain roots for future-you. Streaks create momentum. Break one? Restart. Heroes return.
+
+**How do I use missions to support goals?**  
+- Translate goals into specific missions (proposals, outreach, prep). Tie each mission to a goal; finish it for XP and real movement.
+
+**What if I’m not motivated?**  
+- Motivation is optional. Systems win. Do the tiny version anyway; XP keeps you invested.
+
+**Best time of day?**  
+- Whenever you’re consistent. Morning = clarity, afternoon = production, evening = grounding. Fit real life, not an ideal calendar.
+
+**Make it stick long-term?**  
+- Cue → Action → Reward (XP/streak). Repeat your identity: “I honor my commitments.” Identity beats willpower.
+
+**Can I change or remove habits later?**  
+- Absolutely. Evolve the system. You’re not in a monastery; you’re running a life OS.
+
+**How do I deal with resistance/chaos?**  
+- Name it. Shrink it. Do 10%. Chaos? Do the smallest version, protect the streak if you can, and let XP be your compass back.
+
+**How do I avoid burnout?**  
+- Start small. Stay playful. Celebrate progress. If it feels heavy, shrink it and add a wink.
 
 **Where's my data stored?**  
 - Firebase (per your credentials).""")
 
         st.subheader("Usage Guide")
         st.markdown("""
-1) **Set Your Direction**: Add 1–3 goals; keep it lean.  
+1) **Set Your Direction**: Add 1-3 goals; keep it lean.  
 2) **Build Upgrades**: Small daily habits tied to those goals.  
 3) **Ship Missions**: Create focused tasks; mark them Done for XP.  
 4) **Check the Signals**: Momentum comes from streaks; guard them.  
