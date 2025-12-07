@@ -405,6 +405,101 @@ class FirebaseStorage(StorageProvider):
         except Exception:
             return True  # Default to enabled
 
+    # Auth + email helpers for Firebase-backed storage
+    def user_exists(self, user_id: str) -> bool:
+        if not self.db:
+            return False
+        safe_id = sanitize_user_id(user_id)
+        doc_ref = self.db.collection("users").document(safe_id)
+        return doc_ref.get().exists
+
+    def set_user_password(self, user_id: str, password: str) -> None:
+        data = self.load_data(user_id)
+        if not password:
+            data['auth'] = {}
+            self.save_data(user_id, data)
+            return
+
+        salt = secrets.token_bytes(16)
+        dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 200_000)
+        data['auth'] = {
+            'salt': binascii.hexlify(salt).decode('ascii'),
+            'pw_hash': binascii.hexlify(dk).decode('ascii'),
+        }
+        self.save_data(user_id, data)
+
+    def verify_user_password(self, user_id: str, password: str) -> bool:
+        if not self.user_exists(user_id):
+            return False
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        pw_hash = auth.get('pw_hash')
+        salt_hex = auth.get('salt')
+        if not pw_hash or not salt_hex:
+            return True  # No password set -> allow
+
+        try:
+            salt = binascii.unhexlify(salt_hex.encode('ascii'))
+            expected = binascii.unhexlify(pw_hash.encode('ascii'))
+            dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 200_000)
+            return secrets.compare_digest(dk, expected)
+        except Exception:
+            return False
+
+    def set_user_email(self, user_id: str, email: Optional[str]) -> None:
+        data = self.load_data(user_id)
+        data['email'] = email
+        self.save_data(user_id, data)
+
+    def get_user_email(self, user_id: str) -> Optional[str]:
+        if not self.user_exists(user_id):
+            return None
+        data = self.load_data(user_id)
+        return data.get('email')
+
+    def create_password_reset_token(self, user_id: str, expires_in: int = 3600) -> Optional[str]:
+        if not self.user_exists(user_id):
+            return None
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        expiry = (datetime.datetime.utcnow() + datetime.timedelta(seconds=expires_in)).isoformat() + 'Z'
+
+        data = self.load_data(user_id)
+        auth = data.get('auth', {})
+        auth['reset_hash'] = token_hash
+        auth['reset_expiry'] = expiry
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return token
+
+    def verify_and_consume_reset_token(self, user_id: str, token: str) -> bool:
+        if not self.user_exists(user_id):
+            return False
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        reset_hash = auth.get('reset_hash')
+        reset_expiry = auth.get('reset_expiry')
+        if not reset_hash or not reset_expiry:
+            return False
+
+        try:
+            expiry_dt = datetime.datetime.fromisoformat(reset_expiry.rstrip('Z'))
+        except Exception:
+            return False
+
+        if datetime.datetime.utcnow() > expiry_dt:
+            return False
+
+        compare_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        if not secrets.compare_digest(compare_hash, reset_hash):
+            return False
+
+        auth.pop('reset_hash', None)
+        auth.pop('reset_expiry', None)
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return True
+
 def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     """Ensures all necessary keys exist in the loaded data."""
     # Core keys
