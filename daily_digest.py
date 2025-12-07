@@ -13,10 +13,15 @@ import json
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 from storage import get_storage
 from email_utils import send_email
 from onboarding import get_coaching_profile, calculate_days_since_signup
 from coaching_engine import get_coaching_email_for_user
+from coaching_emails import get_gemini_client
 
 
 DIGEST_HISTORY_FILE = "daily_digest_history.json"
@@ -205,6 +210,25 @@ def _calculate_current_streaks(data: Dict) -> Dict[str, int]:
     return streaks
 
 
+def _tz_abbr(tz_name: str) -> str:
+    """Return a short timezone label (e.g., EST/PST) from a tz database name."""
+    if not tz_name:
+        return "UTC"
+    if ZoneInfo:
+        try:
+            now = datetime.now(ZoneInfo(tz_name))
+            abbr = now.tzname()
+            if abbr:
+                return abbr
+        except Exception:
+            pass
+    short = tz_name.split("/")[-1]
+    if len(short) <= 4:
+        return short.upper()
+    return tz_name
+
+
+
 def _generate_digest_content(
     user_id: str,
     profile: Dict,
@@ -213,97 +237,112 @@ def _generate_digest_content(
     streaks: Dict,
     data: Dict
 ) -> tuple[str, str]:
-    """Generate subject and body for daily digest email."""
-    
-    # Count completions
+    """Generate a single, irreverent daily digest with wins, misses, and next moves."""
     completed_count = len(today_completions)
-    active_habits_count = sum(1 for h in habits.values() if h.get("active", True))
-    
-    # Determine sentiment
-    if completed_count == 0:
-        sentiment = "Let's Get Back on Track"
-        emoji = "🌱"
-    elif completed_count < active_habits_count / 2:
-        sentiment = "Good Start!"
-        emoji = "⚡"
-    elif completed_count == active_habits_count:
-        sentiment = "Perfect Day! 🔥"
-        emoji = "🔥"
+    active_habits = {h: v for h, v in habits.items() if v.get("active", True)}
+    active_habits_count = len(active_habits)
+    missed = [h for h in active_habits if h not in today_completions]
+
+    longest = max(streaks.items(), key=lambda x: x[1], default=(None, 0))
+    broken = [h for h in missed if streaks.get(h, 0) == 0]
+
+    tz_name = profile.get("timezone", "UTC") or "UTC"
+    tz_label = _tz_abbr(tz_name)
+    try:
+        local_now = datetime.now(ZoneInfo(tz_name)) if ZoneInfo else datetime.utcnow()
+    except Exception:
+        local_now = datetime.utcnow()
+    clock = local_now.strftime("%I:%M %p").lstrip("0")
+
+    day_num = calculate_days_since_signup(user_id)
+    if completed_count == active_habits_count and active_habits_count > 0:
+        subject = f"🔥 Day {day_num}: Perfect. Don't get cute tomorrow."
+    elif completed_count == 0:
+        subject = f"🩸 Day {day_num}: Nothing done. Tomorrow gets no excuses."
     else:
-        sentiment = "Nice Progress!"
-        emoji = "⭐"
-    
-    subject = f"{emoji} Daily Digest: {sentiment} (Day {calculate_days_since_signup(user_id)})"
-    
-    # Build body
-    body = f"""
-Hello {profile.get('success_factor', 'champion')},
+        subject = f"⚡ Day {day_num}: {completed_count}/{active_habits_count} done. We push again."
 
-**📊 Your Day at a Glance**
+    wins_lines = []
+    for habit in today_completions:
+        streak = streaks.get(habit, 0)
+        tag = "🚀" if streak >= 7 else "🌶️" if streak >= 3 else "✅"
+        wins_lines.append(f"- {habit} {tag} {streak}-day streak")
 
-✅ Completed Today: {completed_count}/{active_habits_count} habits
+    miss_lines = []
+    for habit in missed:
+        miss_lines.append(f"- {habit} -> do the 2-minute version tomorrow, no speeches.")
 
+    streak_callouts = []
+    if longest[0]:
+        streak_callouts.append(f"Longest streak: {longest[0]} at {longest[1]} days. Guard it.")
+    if broken:
+        streak_callouts.append(f"Streaks that died today: {', '.join(broken)}. Mourn later, restart now.")
+    if not streak_callouts:
+        streak_callouts.append("No streak drama. Keep stacking.")
+
+    chrono = profile.get("chronotype", "flexible")
+    anchor = "right after coffee" if "morning" in chrono else "right after work" if "even" in chrono else "before you crash"
+    next_moves = []
+    for habit in (missed[:2] or today_completions[:2]):
+        next_moves.append(f"- {habit}: drop a 5-10m rep {anchor}. No perfectionism.")
+
+    success_name = profile.get("success_factor") or profile.get("main_habit") or "friend"
+    goals = profile.get("life_goals", [])
+    goals_tag = f"Goals on deck: {', '.join(goals[:2])}" if goals else "No goals listed - pick one."
+
+    opener = None
+    client = get_gemini_client()
+    if client:
+        prompt = f"""
+You are a blunt, dark-humor coach (Thug Kitchen vibe). Write ONE short opener line (<30 words) recapping today:
+- Completed: {completed_count}/{active_habits_count}
+- Wins: {today_completions}
+- Misses: {missed}
+- Tone: irreverent, encouraging, zero fluff, clear direction.
 """
-    
-    # List completed habits with streaks
-    if today_completions:
-        body += "**🎯 Today's Wins:**\n"
-        for habit in today_completions:
-            streak = streaks.get(habit, 0)
-            streak_emoji = "🔥" if streak >= 7 else ("⚡" if streak >= 3 else "🌱")
-            body += f"- {habit} {streak_emoji} {streak}-day streak!\n"
-        body += "\n"
-    
-    # List missed habits
-    missed = [h for h in habits if habits[h].get("active", True) and h not in today_completions]
-    if missed:
-        body += "**📋 Didn't Get To:**\n"
-        for habit in missed[:3]:
-            body += f"- {habit}\n"
-        
-        body += f"""
+        try:
+            opener = client.generate_content(prompt).text.strip().splitlines()[0]
+        except Exception:
+            opener = None
 
-**Quick Reflection:** What got in the way today? Was it:
-- Time? Try a different time slot
-- Energy? Scale the habit down temporarily
-- Forgot? Add a phone reminder or habit stack
-- Not feeling it? Remember: even 1 minute counts
+    if not opener:
+        opener = f"{completed_count}/{active_habits_count} done. Less talk, more reps tomorrow."
 
-"""
-    
-    # Add streaks summary
-    body += "**🔥 Your Streaks:**\n"
-    for habit, streak in sorted(streaks.items(), key=lambda x: x[1], reverse=True):
-        if habits.get(habit, {}).get("active", True):
-            if streak > 0:
-                body += f"- {habit}: {streak} days\n"
-    
-    body += "\n"
-    
-    # Add adaptive coaching (after Day 14)
     days = calculate_days_since_signup(user_id)
+    coaching_tip = ""
     if days >= 14:
         coaching_email = get_coaching_email_for_user(user_id)
         if coaching_email:
-            body += f"""
-**🎓 Today's Coaching Tip:**
+            coaching_tip = f"\n🧠 Coaching tip: {coaching_email['body'].strip()[:400]}"
 
-{coaching_email['body'][:500]}...
+    body = f"""Hey {success_name},
 
+{opener}
+
+⏰ Clock: {clock} {tz_label}
+
+🏅 Wins
+{os.linesep.join(wins_lines) if wins_lines else 'None. Start with one easy rep tomorrow.'}
+
+🩸 Misses
+{os.linesep.join(miss_lines) if miss_lines else 'None today. Keep it tight.'}
+
+📊 Streak Radar
+{os.linesep.join(streak_callouts)}
+
+🎯 Next Moves
+{os.linesep.join(next_moves) if next_moves else 'Pick the easiest habit and do 2 minutes right after coffee.'}
+
+🧠 Vibe
+{goals_tag}{coaching_tip}
+
+Remember: consistency beats heroic effort. Tiny reps, ruthless follow-through, dark humor optional.
+
+- XP Tracker (still cheering, still roasting)
 """
-    
-    # Add reflection prompt
-    body += f"""
-**💭 Reflection Prompt:**
-"Today I prioritized {', '.join(today_completions[:2]) if today_completions else 'rest and recovery'}. 
-Tomorrow I want to focus on..."
 
-Keep building. You're on Day {calculate_days_since_signup(user_id)} of your journey.
-
-Your XP Tracker
-"""
-    
     return subject, body
+
 
 
 def get_user_digest_preference(user_id: str) -> Dict[str, Any]:
