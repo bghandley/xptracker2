@@ -2425,6 +2425,7 @@ Welcome to Heroic Everyday — a clean, business-friendly tracker with playful e
 **How do I log progress?**  
 - Check off Upgrades in the **Hero Log**. Streaks fuel your Momentum Meter.
 - Add one-off work to the **Mission Deck**; hit Done for XP.
+- Filter by context/cadence to focus (Work/Personal/Health/Creativity/Admin + Daily/3x/Weekly/One-Off).
 
 **How are emails/AI responses written?**  
 - Playfully direct, smart humor, warm underneath. No fluff, no lecture.
@@ -2453,6 +2454,7 @@ Welcome to Heroic Everyday — a clean, business-friendly tracker with playful e
 
 **How do I use missions to support goals?**  
 - Translate goals into specific missions (proposals, outreach, prep). Tie each mission to a goal; finish it for XP and real movement.
+- Use context tags to batch similar work; export missions to calendar (.ics) if you want them on your schedule.
 
 **What if I’m not motivated?**  
 - Motivation is optional. Systems win. Do the tiny version anyway; XP keeps you invested.
@@ -2471,6 +2473,10 @@ Welcome to Heroic Everyday — a clean, business-friendly tracker with playful e
 
 **How do I avoid burnout?**  
 - Start small. Stay playful. Celebrate progress. If it feels heavy, shrink it and add a wink.
+
+**What about privacy and rewards?**  
+- Private mode hides you from Leaderboard and shared stats.  
+- Set XP milestones as personal rewards; you’ll get a prompt when you hit them.
 
 **Where's my data stored?**  
 - Firebase (per your credentials).""")
