@@ -756,20 +756,6 @@ def render_guided_setup():
     if not st.session_state.get("authenticated_user"):
         return
 
-    # Primary sign-in screen when not authenticated
-    is_authed = st.session_state.get('authenticated_user') or st.session_state.get('admin_authenticated')
-    if not is_authed:
-        st.title("Welcome to Heroic Everyday")
-        st.subheader("Sign in to start tracking")
-
-        google_token_main = render_google_login_button(primary=True)
-        if google_token_main and isinstance(google_token_main, str):
-            st.session_state['google_id_token'] = google_token_main
-            st.rerun()
-
-        st.caption("Or use your existing username/password in the left panel.")
-        st.stop()
-
     data = load_data()
     active_goals = get_active_goals(data) or ["General"]
     archived_goals = data.get("archived_goals", [])
@@ -1418,139 +1404,52 @@ def main():
             except Exception:
                 st.error("Google sign-in failed. Please try again.")
                 st.session_state['google_id_token'] = None
+
     with st.sidebar:
-        st.title("👤 User Profile")
+        st.title("User Profile")
 
-        # Dropdown to select existing user
-        existing_users = get_existing_users()
-        if existing_users:
-            st.subheader("Existing Users")
-            selected_user = st.selectbox(
-                "Pick a user",
-                options=existing_users,
-                index=existing_users.index(st.session_state['user_id']) if st.session_state['user_id'] in existing_users else 0,
-                key="user_dropdown"
-            )
-            if st.button("📂 Load Selected User"):
-                st.session_state['user_id'] = selected_user
-                st.success(f"Switched to user: {selected_user}")
-                st.rerun()
-            st.divider()
+        authed_user = st.session_state.get('authenticated_user')
 
-        # Google Sign-In (sidebar)
-        if not st.session_state.get('authenticated_user'):
+        if not authed_user:
+            st.subheader("Sign in with Google")
             google_token = render_google_login_button()
             if google_token and isinstance(google_token, str):
                 st.session_state['google_id_token'] = google_token
                 st.rerun()
-
-        st.subheader("Login / Create Account")
-        if st.session_state.get('authenticated_user'):
-            st.info(f"Logged in as {st.session_state['authenticated_user']}")
+            if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
+                st.warning("Add [firebase_auth] (apiKey, authDomain, projectId, appId) to secrets.toml to enable Google sign-in.")
+            st.caption("Username/password login is disabled. Use your Google account.")
         else:
-            username_input = st.text_input("Username", value=st.session_state['user_id'])
-            password_input = st.text_input("Password", type="password")
-            email_input = st.text_input("Email (optional)", placeholder="your-email@example.com")
+            st.success(f"Signed in as {authed_user}")
 
-            # Action buttons: Login / Create
-            col_a, col_b = st.columns(2)
-            storage = get_storage()
-
-            with col_a:
-                if st.button("Login / Switch"):
-                    if not username_input or username_input.strip() == "":
-                        st.error("Enter a username to login.")
-                    else:
-                        # Check existence first
-                        if storage.user_exists(username_input):
-                            ok = storage.verify_user_password(username_input, password_input)
-                            if ok:
-                                st.session_state['user_id'] = username_input
-                                st.session_state['authenticated_user'] = username_input  # Set auth flag
-                                st.success(f"Switched to user: {username_input}")
-                                st.rerun()
-                            else:
-                                st.error("Invalid password for user.")
-                        else:
-                            st.warning("User not found. Use 'Create New' to make a new user.")
-
-            with col_b:
-                if st.button("Create New User"):
-                    if not username_input or username_input.strip() == "":
-                        st.error("Enter a username to create.")
-                    else:
-                        if storage.user_exists(username_input):
-                            st.warning("User already exists. Try logging in.")
-                        else:
-                            # Validate email if provided
-                            if email_input and email_input.strip():
-                                is_valid, msg = validate_email(email_input)
-                                if not is_valid:
-                                    st.error(f"Invalid email: {msg}")
-                                else:
-                                    # Create user with email
-                                    storage.load_data(username_input)
-                                    if password_input:
-                                        storage.set_user_password(username_input, password_input)
-                                    storage.set_user_email(username_input, email_input.strip())
-                                    st.session_state['user_id'] = username_input
-                                    st.session_state['authenticated_user'] = username_input  # Set auth flag
-                                    st.session_state['show_onboarding'] = True  # Show onboarding next
-                                    st.success(f"Created and switched to user: {username_input}")
-                                    st.info(f"Email saved: {email_input}")
-                                    st.rerun()
-                            else:
-                                # Create user without email
-                                storage.load_data(username_input)
-                                if password_input:
-                                    storage.set_user_password(username_input, password_input)
-                                st.session_state['user_id'] = username_input
-                                st.session_state['authenticated_user'] = username_input  # Set auth flag
-                                st.session_state['show_onboarding'] = True  # Show onboarding next
-                                st.success(f"Created and switched to user: {username_input}")
-                                st.info("💡 You can add email later in your Profile")
-                                st.rerun()
-
-            if st.button('Forgot Password'):
-                if not username_input or username_input.strip() == '':
-                    st.error('Enter your username to request a reset link.')
-                else:
-                    user_email = storage.get_user_email(username_input)
-                    if not user_email:
-                        st.error('No email on file for that user. Please set an email in Profile first.')
-                    else:
-                        token = storage.create_password_reset_token(username_input)
-                        if not token:
-                            st.error('Failed to create reset token (user may not exist).')
-                        else:
-                            app_url = None
-                            if hasattr(st, 'secrets') and st.secrets.get('app'):
-                                app_url = st.secrets.get('app', {}).get('url')
-                            app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
-                            params = {'reset_user': username_input, 'token': token}
-                            reset_link = app_url + '/?' + urllib.parse.urlencode(params)
-                            subject = 'XP Tracker Password Reset'
-                            body = f'Hello {username_input},\n\nA request was made to reset your password. If you requested this, open the link below and set a new password. The link will expire in one hour.\n\n{reset_link}\n\nIf you did not request this, ignore this email.'
-                            ok = send_email(user_email, subject, body)
-                            if ok:
-                                st.success(f'Reset link sent to {user_email}.')
-                            else:
-                                st.error('Failed to send reset email. Check SMTP settings.')
-
-        # Logout button
         st.divider()
-        is_authenticated = st.session_state.get('authenticated_user') is not None
-        if is_authenticated:
-            if st.button("🚪 Logout"):
+        if authed_user:
+            if st.button("Logout"):
                 st.session_state['authenticated_user'] = None
                 st.session_state['admin_authenticated'] = False
                 st.session_state['google_id_token'] = None
                 st.success("Logged out successfully.")
                 st.rerun()
         else:
-            st.info("💡 Log in above or view the Leaderboard tab (public)")
+            st.info("Sign in above. Leaderboard remains public.")
 
         st.divider()
+
+    # Primary sign-in screen when not authenticated
+    is_authed = st.session_state.get('authenticated_user') or st.session_state.get('admin_authenticated')
+    if not is_authed:
+        st.title("Welcome to Heroic Everyday")
+        st.subheader("Sign in to start tracking")
+
+        google_token_main = render_google_login_button(primary=True)
+        if google_token_main and isinstance(google_token_main, str):
+            st.session_state['google_id_token'] = google_token_main
+            st.rerun()
+
+        if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
+            st.warning("Add [firebase_auth] (apiKey, authDomain, appId, projectId) to secrets.toml to enable Google sign-in.")
+
+        st.stop()
 
     data = load_data()
     active_goals = get_active_goals(data) or ["General"]
