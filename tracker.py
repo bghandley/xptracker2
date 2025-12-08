@@ -6,12 +6,20 @@ import uuid
 from typing import Dict, List, Any, Tuple
 import pandas as pd
 import plotly.express as px
+import streamlit.components.v1 as components
 from storage import get_storage, validate_email
 from email_utils import send_email
 import notifications
 from coaching_emails import get_gemini_client, get_gemini_status
 import urllib.parse
 import os
+try:
+    import firebase_admin
+    from firebase_admin import auth as fb_auth, credentials as fb_credentials
+except ImportError:
+    firebase_admin = None
+    fb_auth = None
+    fb_credentials = None
 from onboarding import (
     show_onboarding_modal,
     save_onboarding_profile,
@@ -1259,6 +1267,61 @@ def get_existing_users() -> List[str]:
         users.append(user_id)
     return sorted(users)
 
+
+def ensure_firebase_initialized() -> bool:
+    """Initialize firebase-admin using the [firebase] secrets block."""
+    if not firebase_admin or not fb_credentials:
+        st.warning("firebase-admin not installed; Google sign-in disabled.")
+        return False
+    if firebase_admin._apps:
+        return True
+    if hasattr(st, "secrets") and st.secrets.get("firebase"):
+        try:
+            cred = fb_credentials.Certificate(dict(st.secrets["firebase"]))
+            firebase_admin.initialize_app(cred)
+            return True
+        except Exception as e:
+            st.error(f"Failed to init Firebase for Google login: {e}")
+            return False
+    st.error("Add Firebase service account under [firebase] in secrets for Google login.")
+    return False
+
+
+def render_google_login_button():
+    """Render a Google Sign-In button and return the ID token (if provided by JS)."""
+    cfg = st.secrets.get("firebase_auth") if hasattr(st, "secrets") else None
+    if not cfg:
+        return None
+
+    cfg_json = json.dumps(dict(cfg))
+    html = f"""
+    <div id="google-signin"></div>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script>
+      const cfg = {cfg_json};
+      if (!firebase.apps.length) {{
+        firebase.initializeApp(cfg);
+      }}
+      const auth = firebase.auth();
+      const btn = document.getElementById("google-signin");
+      if (btn) {{
+        btn.innerHTML = '<button style="padding:10px 12px;border-radius:6px;background:#fff;color:#000;border:1px solid #ddd;cursor:pointer;width:100%;">Sign in with Google</button>';
+        btn.onclick = () => {{
+          auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
+            .then(result => result.user.getIdToken())
+            .then(token => {{
+              window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setComponentValue", value: token}}, "*");
+            }})
+            .catch(err => {{
+              console.log("Google sign-in error", err);
+            }});
+        }};
+      }}
+    </script>
+    """
+    return components.html(html, height=90, scrolling=False, key="google_signin_component")
+
 # --- Main App Layout ---
 
 def main():
@@ -1295,6 +1358,8 @@ def main():
         st.session_state['authenticated_user'] = None
     if 'admin_authenticated' not in st.session_state:
         st.session_state['admin_authenticated'] = False
+    if 'google_id_token' not in st.session_state:
+        st.session_state['google_id_token'] = None
     
         # === OPTION 3: INITIALIZE BACKGROUND SCHEDULER ===
         if 'scheduler_initialized' not in st.session_state:
@@ -1306,6 +1371,31 @@ def main():
                     # Scheduler failed to initialize - app continues without background jobs
                     pass
             st.session_state['scheduler_initialized'] = True
+
+    # Handle Google token if present
+    if st.session_state.get('google_id_token') and not st.session_state.get('authenticated_user'):
+        if ensure_firebase_initialized() and fb_auth:
+            try:
+                decoded = fb_auth.verify_id_token(st.session_state['google_id_token'])
+                user_id = decoded.get('uid') or decoded.get('email')
+                email = decoded.get('email')
+                if user_id:
+                    storage = get_storage()
+                    if not storage.user_exists(user_id):
+                        storage.load_data(user_id)
+                    if email:
+                        storage.set_user_email(user_id, email)
+                    st.session_state['user_id'] = user_id
+                    st.session_state['authenticated_user'] = user_id
+                    st.session_state['google_id_token'] = None
+                    st.success(f"Signed in with Google as {email or user_id}")
+                    st.rerun()
+                else:
+                    st.error("Google sign-in token missing email/uid.")
+                    st.session_state['google_id_token'] = None
+            except Exception:
+                st.error("Google sign-in failed. Please try again.")
+                st.session_state['google_id_token'] = None
     with st.sidebar:
         st.title("👤 User Profile")
 
@@ -1325,94 +1415,105 @@ def main():
                 st.rerun()
             st.divider()
 
+        # Google Sign-In
+        if not st.session_state.get('authenticated_user'):
+            google_token = render_google_login_button()
+            if google_token and isinstance(google_token, str):
+                st.session_state['google_id_token'] = google_token
+                st.rerun()
+
         st.subheader("Login / Create Account")
-        username_input = st.text_input("Username", value=st.session_state['user_id'])
-        password_input = st.text_input("Password", type="password")
-        email_input = st.text_input("Email (optional)", placeholder="your-email@example.com")
+        if st.session_state.get('authenticated_user'):
+            st.info(f"Logged in as {st.session_state['authenticated_user']}")
+        else:
+            username_input = st.text_input("Username", value=st.session_state['user_id'])
+            password_input = st.text_input("Password", type="password")
+            email_input = st.text_input("Email (optional)", placeholder="your-email@example.com")
 
-        # Action buttons: Login / Create
-        col_a, col_b = st.columns(2)
-        storage = get_storage()
+            # Action buttons: Login / Create
+            col_a, col_b = st.columns(2)
+            storage = get_storage()
 
-        with col_a:
-            if st.button("Login / Switch"):
-                if not username_input or username_input.strip() == "":
-                    st.error("Enter a username to login.")
-                else:
-                    # Check existence first
-                    if storage.user_exists(username_input):
-                        ok = storage.verify_user_password(username_input, password_input)
-                        if ok:
-                            st.session_state['user_id'] = username_input
-                            st.session_state['authenticated_user'] = username_input  # Set auth flag
-                            st.success(f"Switched to user: {username_input}")
-                            st.rerun()
-                        else:
-                            st.error("Invalid password for user.")
+            with col_a:
+                if st.button("Login / Switch"):
+                    if not username_input or username_input.strip() == "":
+                        st.error("Enter a username to login.")
                     else:
-                        st.warning("User not found. Use 'Create New' to make a new user.")
-
-        with col_b:
-            if st.button("Create New User"):
-                if not username_input or username_input.strip() == "":
-                    st.error("Enter a username to create.")
-                else:
-                    if storage.user_exists(username_input):
-                        st.warning("User already exists. Try logging in.")
-                    else:
-                        # Validate email if provided
-                        if email_input and email_input.strip():
-                            is_valid, msg = validate_email(email_input)
-                            if not is_valid:
-                                st.error(f"Invalid email: {msg}")
+                        # Check existence first
+                        if storage.user_exists(username_input):
+                            ok = storage.verify_user_password(username_input, password_input)
+                            if ok:
+                                st.session_state['user_id'] = username_input
+                                st.session_state['authenticated_user'] = username_input  # Set auth flag
+                                st.success(f"Switched to user: {username_input}")
+                                st.rerun()
                             else:
-                                # Create user with email
+                                st.error("Invalid password for user.")
+                        else:
+                            st.warning("User not found. Use 'Create New' to make a new user.")
+
+            with col_b:
+                if st.button("Create New User"):
+                    if not username_input or username_input.strip() == "":
+                        st.error("Enter a username to create.")
+                    else:
+                        if storage.user_exists(username_input):
+                            st.warning("User already exists. Try logging in.")
+                        else:
+                            # Validate email if provided
+                            if email_input and email_input.strip():
+                                is_valid, msg = validate_email(email_input)
+                                if not is_valid:
+                                    st.error(f"Invalid email: {msg}")
+                                else:
+                                    # Create user with email
+                                    storage.load_data(username_input)
+                                    if password_input:
+                                        storage.set_user_password(username_input, password_input)
+                                    storage.set_user_email(username_input, email_input.strip())
+                                    st.session_state['user_id'] = username_input
+                                    st.session_state['authenticated_user'] = username_input  # Set auth flag
+                                    st.session_state['show_onboarding'] = True  # Show onboarding next
+                                    st.success(f"Created and switched to user: {username_input}")
+                                    st.info(f"Email saved: {email_input}")
+                                    st.rerun()
+                            else:
+                                # Create user without email
                                 storage.load_data(username_input)
                                 if password_input:
                                     storage.set_user_password(username_input, password_input)
-                                storage.set_user_email(username_input, email_input.strip())
                                 st.session_state['user_id'] = username_input
                                 st.session_state['authenticated_user'] = username_input  # Set auth flag
                                 st.session_state['show_onboarding'] = True  # Show onboarding next
                                 st.success(f"Created and switched to user: {username_input}")
-                                st.info(f"Email saved: {email_input}")
+                                st.info("💡 You can add email later in your Profile")
                                 st.rerun()
-                        else:
-                            # Create user without email
-                            storage.load_data(username_input)
-                            if password_input:
-                                storage.set_user_password(username_input, password_input)
-                            st.session_state['user_id'] = username_input
-                            st.session_state['authenticated_user'] = username_input  # Set auth flag
-                            st.session_state['show_onboarding'] = True  # Show onboarding next
-                            st.success(f"Created and switched to user: {username_input}")
-                            st.info("💡 You can add email later in your Profile")
-                            st.rerun()        # Forgot password flow
-        if st.button('Forgot Password'):
-            if not username_input or username_input.strip() == '':
-                st.error('Enter your username to request a reset link.')
-            else:
-                user_email = storage.get_user_email(username_input)
-                if not user_email:
-                    st.error('No email on file for that user. Please set an email in Profile first.')
+
+            if st.button('Forgot Password'):
+                if not username_input or username_input.strip() == '':
+                    st.error('Enter your username to request a reset link.')
                 else:
-                    token = storage.create_password_reset_token(username_input)
-                    if not token:
-                        st.error('Failed to create reset token (user may not exist).')
+                    user_email = storage.get_user_email(username_input)
+                    if not user_email:
+                        st.error('No email on file for that user. Please set an email in Profile first.')
                     else:
-                        app_url = None
-                        if hasattr(st, 'secrets') and st.secrets.get('app'):
-                            app_url = st.secrets.get('app', {}).get('url')
-                        app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
-                        params = {'reset_user': username_input, 'token': token}
-                        reset_link = app_url + '/?' + urllib.parse.urlencode(params)
-                        subject = 'XP Tracker Password Reset'
-                        body = f'Hello {username_input},\n\nA request was made to reset your password. If you requested this, open the link below and set a new password. The link will expire in one hour.\n\n{reset_link}\n\nIf you did not request this, ignore this email.'
-                        ok = send_email(user_email, subject, body)
-                        if ok:
-                            st.success(f'Reset link sent to {user_email}.')
+                        token = storage.create_password_reset_token(username_input)
+                        if not token:
+                            st.error('Failed to create reset token (user may not exist).')
                         else:
-                            st.error('Failed to send reset email. Check SMTP settings.')
+                            app_url = None
+                            if hasattr(st, 'secrets') and st.secrets.get('app'):
+                                app_url = st.secrets.get('app', {}).get('url')
+                            app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
+                            params = {'reset_user': username_input, 'token': token}
+                            reset_link = app_url + '/?' + urllib.parse.urlencode(params)
+                            subject = 'XP Tracker Password Reset'
+                            body = f'Hello {username_input},\n\nA request was made to reset your password. If you requested this, open the link below and set a new password. The link will expire in one hour.\n\n{reset_link}\n\nIf you did not request this, ignore this email.'
+                            ok = send_email(user_email, subject, body)
+                            if ok:
+                                st.success(f'Reset link sent to {user_email}.')
+                            else:
+                                st.error('Failed to send reset email. Check SMTP settings.')
 
         # Logout button
         st.divider()
@@ -1421,6 +1522,7 @@ def main():
             if st.button("🚪 Logout"):
                 st.session_state['authenticated_user'] = None
                 st.session_state['admin_authenticated'] = False
+                st.session_state['google_id_token'] = None
                 st.success("Logged out successfully.")
                 st.rerun()
         else:
