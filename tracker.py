@@ -1469,10 +1469,8 @@ def main():
 
         if not authed_user:
             st.subheader("Sign in with Google")
-            google_token = render_google_login_button()
-            if google_token and isinstance(google_token, str):
-                st.session_state['google_id_token'] = google_token
-                st.rerun()
+            # Use redirect flow (works outside iframe)
+            render_google_redirect_button()
             if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
                 st.warning("Add [firebase_auth] (apiKey, authDomain, projectId, appId) to secrets.toml to enable Google sign-in.")
             st.caption("Username/password login is disabled. Use your Google account.")
