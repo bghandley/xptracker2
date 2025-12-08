@@ -1395,19 +1395,36 @@ def render_google_redirect_button():
 def main():
     # --- Google token via redirect ---
     params = st.query_params
-    redirect_token = params.get('google_token', [None])[0]
+    # Fix for Streamlit 1.30+ where st.query_params is a dict-like object returning strings, not lists
+    redirect_token = params.get('google_token')
+
+    # Legacy fallback if it returns a list (old versions)
+    if isinstance(redirect_token, list) and redirect_token:
+        redirect_token = redirect_token[0]
+
     if redirect_token:
         st.session_state['google_id_token'] = redirect_token
         # Clean URL
-        clean_params = {k: v for k, v in params.items() if k != 'google_token'}
         try:
-            st.experimental_set_query_params(**{k: v for k, v in clean_params.items()})
+            # Modern Streamlit (1.30+)
+            if 'google_token' in st.query_params:
+                del st.query_params['google_token']
         except Exception:
-            pass
+            try:
+                # Legacy fallback
+                clean_params = {k: v for k, v in params.items() if k != 'google_token'}
+                st.experimental_set_query_params(**clean_params)
+            except Exception:
+                pass
 
     # --- Password reset via link handler ---
-    reset_user = params.get('reset_user', [None])[0]
-    reset_token = params.get('token', [None])[0]
+    reset_user = params.get('reset_user')
+    if isinstance(reset_user, list) and reset_user:
+        reset_user = reset_user[0]
+
+    reset_token = params.get('token')
+    if isinstance(reset_token, list) and reset_token:
+        reset_token = reset_token[0]
     if reset_user and reset_token:
         st.title('Password Reset')
         st.write(f"Resetting password for: **{reset_user}**")
