@@ -1573,17 +1573,17 @@ def main():
                 if st.button("Create"):
                     if not sb_username.strip():
                         st.error("Enter a username to create.")
-            elif storage.user_exists(sb_username):
-                st.error("User already exists.")
-            elif not sb_email.strip():
-                st.error("Email is required for verification.")
-            elif email_in_use(storage, sb_email.strip()):
-                st.error("That email is already in use.")
-            else:
-                ok, msg = validate_email(sb_email.strip())
-                if not ok:
-                    st.error(f"Invalid email: {msg}")
-                else:
+                    elif storage.user_exists(sb_username):
+                        st.error("User already exists.")
+                    elif not sb_email.strip():
+                        st.error("Email is required for verification.")
+                    elif email_in_use(storage, sb_email.strip()):
+                        st.error("That email is already in use.")
+                    else:
+                        ok, msg = validate_email(sb_email.strip())
+                        if not ok:
+                            st.error(f"Invalid email: {msg}")
+                        else:
                             storage.load_data(sb_username)
                             if sb_password:
                                 storage.set_user_password(sb_username, sb_password)
