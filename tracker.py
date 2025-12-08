@@ -1338,11 +1338,60 @@ def render_google_login_button(primary: bool = False):
     """
     return components.html(html, height=90, scrolling=False)
 
+
+def render_google_redirect_button():
+    """Render a top-level Google Sign-In button that uses redirect (works outside iframe)."""
+    cfg = st.secrets.get("firebase_auth") if hasattr(st, "secrets") else None
+    if not cfg:
+        return
+    cfg_json = json.dumps(dict(cfg))
+    html = f"""
+    <div id="google-redirect-wrap" style="margin-top:12px;">
+      <button id="google-redirect-btn" style="padding:14px 16px;border-radius:8px;background:#fff;color:#111;border:2px solid #222;font-weight:700;font-size:16px;cursor:pointer;width:100%;">Sign in with Google</button>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script>
+      (function() {{
+        if (window.__firebase_redirect_init) return;
+        window.__firebase_redirect_init = true;
+        const cfg = {cfg_json};
+        if (!firebase.apps.length) firebase.initializeApp(cfg);
+        const auth = firebase.auth();
+        // On load, handle redirect result and bounce token back via query param
+        auth.getRedirectResult().then(res => {{
+          if (res && res.user) {{
+            return res.user.getIdToken().then(tok => {{
+              const url = new URL(window.location.href);
+              url.searchParams.set('google_token', tok);
+              window.location.href = url.toString();
+            }});
+          }
+        }}).catch(err => console.log('Redirect result error', err));
+        const btn = document.getElementById("google-redirect-btn");
+        if (btn) {{
+          btn.onclick = () => {{
+            auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider());
+          }};
+        }}
+      }})();
+    </script>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
 # --- Main App Layout ---
 
 def main():
-    # --- Password reset via link handler ---
+    # --- Google token via redirect ---
     params = st.query_params
+    redirect_token = params.get('google_token', [None])[0]
+    if redirect_token:
+        st.session_state['google_id_token'] = redirect_token
+        # Clean URL
+        clean_params = {k: v for k, v in params.items() if k != 'google_token'}
+        st.query_params = clean_params
+
+    # --- Password reset via link handler ---
     reset_user = params.get('reset_user', [None])[0]
     reset_token = params.get('token', [None])[0]
     if reset_user and reset_token:
@@ -1449,10 +1498,8 @@ def main():
         st.title("Welcome to Heroic Everyday")
         st.subheader("Sign in to start tracking")
 
-        google_token_main = render_google_login_button(primary=True)
-        if google_token_main and isinstance(google_token_main, str):
-            st.session_state['google_id_token'] = google_token_main
-            st.rerun()
+        # Redirect-based Google login (works outside iframe sandbox)
+        render_google_redirect_button()
 
         if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
             st.warning("Add [firebase_auth] (apiKey, authDomain, appId, projectId) to secrets.toml to enable Google sign-in.")
