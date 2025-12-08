@@ -1302,14 +1302,17 @@ def render_google_login_button(primary: bool = False):
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script>
-      // Streamlit component messaging helpers
+      // Streamlit component messaging helpers (both legacy and current)
       function sendHeight(h) {{
-        window.parent.postMessage({{type: "streamlit:setFrameHeight", height: h}}, "*");
+        window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setFrameHeight", height: h}}, "*");
       }}
       function sendValue(v) {{
+        // legacy
+        window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setComponentValue", value: v}}, "*");
+        // current
         window.parent.postMessage({{type: "streamlit:componentValue", value: v}}, "*");
       }}
-      window.parent.postMessage({{type: "streamlit:componentReady", apiVersion: 1}}, "*");
+      window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:componentReady", apiVersion: 1}}, "*");
       sendHeight(document.documentElement.clientHeight);
 
       const cfg = {cfg_json};
