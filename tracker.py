@@ -756,6 +756,20 @@ def render_guided_setup():
     if not st.session_state.get("authenticated_user"):
         return
 
+    # Primary sign-in screen when not authenticated
+    is_authed = st.session_state.get('authenticated_user') or st.session_state.get('admin_authenticated')
+    if not is_authed:
+        st.title("Welcome to Heroic Everyday")
+        st.subheader("Sign in to start tracking")
+
+        google_token_main = render_google_login_button(primary=True)
+        if google_token_main and isinstance(google_token_main, str):
+            st.session_state['google_id_token'] = google_token_main
+            st.rerun()
+
+        st.caption("Or use your existing username/password in the left panel.")
+        st.stop()
+
     data = load_data()
     active_goals = get_active_goals(data) or ["General"]
     archived_goals = data.get("archived_goals", [])
@@ -1287,13 +1301,16 @@ def ensure_firebase_initialized() -> bool:
     return False
 
 
-def render_google_login_button():
+def render_google_login_button(primary: bool = False):
     """Render a Google Sign-In button and return the ID token (if provided by JS)."""
     cfg = st.secrets.get("firebase_auth") if hasattr(st, "secrets") else None
     if not cfg:
         return None
 
     cfg_json = json.dumps(dict(cfg))
+    btn_style = "padding:10px 12px;border-radius:6px;background:#fff;color:#000;border:1px solid #ddd;cursor:pointer;width:100%;"
+    if primary:
+        btn_style = "padding:14px 16px;border-radius:8px;background:#ffffff;color:#111;border:2px solid #222;font-weight:700;font-size:16px;cursor:pointer;width:100%;"
     html = f"""
     <div id="google-signin"></div>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -1306,12 +1323,17 @@ def render_google_login_button():
       const auth = firebase.auth();
       const btn = document.getElementById("google-signin");
       if (btn) {{
-        btn.innerHTML = '<button style="padding:10px 12px;border-radius:6px;background:#fff;color:#000;border:1px solid #ddd;cursor:pointer;width:100%;">Sign in with Google</button>';
+        btn.innerHTML = '<button style="{btn_style}">Sign in with Google</button>';
         btn.onclick = () => {{
           auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
             .then(result => result.user.getIdToken())
             .then(token => {{
-              window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setComponentValue", value: token}}, "*");
+              const Streamlit = window.parent.Streamlit || window.Streamlit;
+              if (Streamlit && Streamlit.setComponentValue) {{
+                Streamlit.setComponentValue(token);
+              }} else {{
+                window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setComponentValue", value: token}}, "*");
+              }}
             }})
             .catch(err => {{
               console.log("Google sign-in error", err);
@@ -1415,7 +1437,7 @@ def main():
                 st.rerun()
             st.divider()
 
-        # Google Sign-In
+        # Google Sign-In (sidebar)
         if not st.session_state.get('authenticated_user'):
             google_token = render_google_login_button()
             if google_token and isinstance(google_token, str):
