@@ -1328,7 +1328,7 @@ def render_google_login_button(primary: bool = False):
       }}
     </script>
     """
-    return components.html(html, height=90, scrolling=False, key="google_signin_component")
+    return components.html(html, height=90, scrolling=False)
 
 # --- Main App Layout ---
 
