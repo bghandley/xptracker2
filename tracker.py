@@ -1497,14 +1497,78 @@ def main():
         st.title("User Profile")
 
         authed_user = st.session_state.get('authenticated_user')
+        storage = get_storage()
 
         if not authed_user:
-            st.subheader("Sign in with Google")
-            # Use redirect flow (works outside iframe)
-            render_google_redirect_button()
-            if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
-                st.warning("Add [firebase_auth] (apiKey, authDomain, projectId, appId) to secrets.toml to enable Google sign-in.")
-            st.caption("Username/password login is disabled. Use your Google account.")
+            st.subheader("Login / Create")
+            sb_username = st.text_input("Username", key="sb_username")
+            sb_password = st.text_input("Password", type="password", key="sb_password")
+            sb_email = st.text_input("Email (optional)", key="sb_email", placeholder="you@example.com")
+            col_sb_a, col_sb_b = st.columns(2)
+            with col_sb_a:
+                if st.button("Login"):
+                    if not sb_username.strip():
+                        st.error("Enter a username.")
+                    elif not storage.user_exists(sb_username):
+                        st.error("User not found.")
+                    elif not storage.verify_user_password(sb_username, sb_password):
+                        st.error("Invalid password.")
+                    else:
+                        st.session_state['user_id'] = sb_username
+                        st.session_state['authenticated_user'] = sb_username
+                        st.success(f"Logged in as {sb_username}")
+                        st.rerun()
+            with col_sb_b:
+                if st.button("Create"):
+                    if not sb_username.strip():
+                        st.error("Enter a username to create.")
+                    elif storage.user_exists(sb_username):
+                        st.error("User already exists.")
+                    else:
+                        if sb_email.strip():
+                            ok, msg = validate_email(sb_email.strip())
+                            if not ok:
+                                st.error(f"Invalid email: {msg}")
+                            else:
+                                storage.load_data(sb_username)
+                                if sb_password:
+                                    storage.set_user_password(sb_username, sb_password)
+                                storage.set_user_email(sb_username, sb_email.strip())
+                                st.session_state['user_id'] = sb_username
+                                st.session_state['authenticated_user'] = sb_username
+                                st.success(f"Created user {sb_username}")
+                                st.rerun()
+                        else:
+                            storage.load_data(sb_username)
+                            if sb_password:
+                                storage.set_user_password(sb_username, sb_password)
+                            st.session_state['user_id'] = sb_username
+                            st.session_state['authenticated_user'] = sb_username
+                            st.success(f"Created user {sb_username}")
+                            st.rerun()
+            if st.button("Forgot Password"):
+                if not sb_username.strip():
+                    st.error("Enter your username first.")
+                else:
+                    user_email = storage.get_user_email(sb_username)
+                    if not user_email:
+                        st.error("No email on file for that user.")
+                    else:
+                        token = storage.create_password_reset_token(sb_username)
+                        if token:
+                            app_url = None
+                            if hasattr(st, 'secrets') and st.secrets.get('app'):
+                                app_url = st.secrets.get('app', {}).get('url')
+                            app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
+                            params_reset = {'reset_user': sb_username, 'token': token}
+                            reset_link = app_url + '/?' + urllib.parse.urlencode(params_reset)
+                            subject = 'XP Tracker Password Reset'
+                            body = f'Hello {sb_username},\\n\\nReset your password:\\n{reset_link}\\n\\nLink expires in one hour.'
+                            if send_email(user_email, subject, body):
+                                st.success(f"Reset link sent to {user_email}")
+                            else:
+                                st.error("Failed to send reset email.")
+            st.caption("Leaderboard remains public; personal tabs require login.")
         else:
             st.success(f"Signed in as {authed_user}")
 
@@ -1516,9 +1580,6 @@ def main():
                 st.session_state['google_id_token'] = None
                 st.success("Logged out successfully.")
                 st.rerun()
-        else:
-            st.info("Sign in above. Leaderboard remains public.")
-
         st.divider()
 
     # Primary sign-in screen when not authenticated
@@ -1527,18 +1588,49 @@ def main():
         st.title("Welcome to Heroic Everyday")
         st.subheader("Sign in to start tracking")
 
-        # Redirect-based Google login (works outside iframe sandbox)
-        render_google_redirect_button()
-        st.markdown(
-            """
-            <div style="margin-top:10px;">
-              <a href="https://gamify-life.streamlit.app/" target="_blank" rel="noopener" style="color:#EDCFA9;font-weight:600;">
-                Open sign-in in a new tab (recommended)
-              </a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        username = st.text_input("Username", key="main_username")
+        password = st.text_input("Password", type="password", key="main_password")
+        email = st.text_input("Email (optional)", key="main_email", placeholder="you@example.com")
+        col_a, col_b = st.columns(2)
+        if col_a.button("Login", key="main_login_btn"):
+            if not username.strip():
+                st.error("Enter a username.")
+            elif not storage.user_exists(username):
+                st.error("User not found.")
+            elif not storage.verify_user_password(username, password):
+                st.error("Invalid password.")
+            else:
+                st.session_state['user_id'] = username
+                st.session_state['authenticated_user'] = username
+                st.success(f"Logged in as {username}")
+                st.rerun()
+        if col_b.button("Create Account", key="main_create_btn"):
+            if not username.strip():
+                st.error("Enter a username to create.")
+            elif storage.user_exists(username):
+                st.error("User already exists.")
+            else:
+                if email.strip():
+                    ok, msg = validate_email(email.strip())
+                    if not ok:
+                        st.error(f"Invalid email: {msg}")
+                    else:
+                        storage.load_data(username)
+                        if password:
+                            storage.set_user_password(username, password)
+                        storage.set_user_email(username, email.strip())
+                        st.session_state['user_id'] = username
+                        st.session_state['authenticated_user'] = username
+                        st.success(f"Created user {username}")
+                        st.rerun()
+                else:
+                    storage.load_data(username)
+                    if password:
+                        storage.set_user_password(username, password)
+                    st.session_state['user_id'] = username
+                    st.session_state['authenticated_user'] = username
+                    st.success(f"Created user {username}")
+                    st.rerun()
 
         if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
             st.warning("Add [firebase_auth] (apiKey, authDomain, appId, projectId) to secrets.toml to enable Google sign-in.")
