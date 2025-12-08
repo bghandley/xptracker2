@@ -92,6 +92,18 @@ class StorageProvider:
     def verify_and_consume_reset_token(self, user_id: str, token: str) -> bool:
         raise NotImplementedError
 
+    def create_email_verification_token(self, user_id: str, expires_in: int = 86400) -> Optional[str]:
+        raise NotImplementedError
+
+    def verify_email_token(self, user_id: str, token: str) -> bool:
+        raise NotImplementedError
+
+    def is_email_verified(self, user_id: str) -> bool:
+        raise NotImplementedError
+
+    def set_email_verified(self, user_id: str, verified: bool) -> None:
+        raise NotImplementedError
+
     def list_users(self) -> list[str]:
         """Return a list of user ids known to the storage provider."""
         raise NotImplementedError
@@ -331,6 +343,64 @@ class LocalStorage(StorageProvider):
         self.save_data(user_id, data)
         return True
 
+    # Email verification helpers
+    def create_email_verification_token(self, user_id: str, expires_in: int = 86400) -> Optional[str]:
+        if not self.user_exists(user_id):
+            return None
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        expiry = (datetime.datetime.utcnow() + datetime.timedelta(seconds=expires_in)).isoformat() + 'Z'
+
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        auth['verify_hash'] = token_hash
+        auth['verify_expiry'] = expiry
+        auth['email_verified'] = False
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return token
+
+    def verify_email_token(self, user_id: str, token: str) -> bool:
+        if not self.user_exists(user_id):
+            return False
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        verify_hash = auth.get('verify_hash')
+        verify_expiry = auth.get('verify_expiry')
+        if not verify_hash or not verify_expiry:
+            return False
+        try:
+            expiry_dt = datetime.datetime.fromisoformat(verify_expiry.rstrip('Z'))
+        except Exception:
+            return False
+        if datetime.datetime.utcnow() > expiry_dt:
+            return False
+        compare_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        if not secrets.compare_digest(compare_hash, verify_hash):
+            return False
+        auth.pop('verify_hash', None)
+        auth.pop('verify_expiry', None)
+        auth['email_verified'] = True
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return True
+
+    def is_email_verified(self, user_id: str) -> bool:
+        if not self.user_exists(user_id):
+            return False
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        return auth.get('email_verified', True)
+
+    def set_email_verified(self, user_id: str, verified: bool) -> None:
+        if not self.user_exists(user_id):
+            return
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        auth['email_verified'] = bool(verified)
+        data['auth'] = auth
+        self.save_data(user_id, data)
+
 class FirebaseStorage(StorageProvider):
     """Stores data in Firebase Firestore."""
 
@@ -510,6 +580,67 @@ class FirebaseStorage(StorageProvider):
         self.save_data(user_id, data)
         return True
 
+    # Email verification helpers (Firebase)
+    def create_email_verification_token(self, user_id: str, expires_in: int = 86400) -> Optional[str]:
+        if not self.user_exists(user_id):
+            return None
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        expiry = (datetime.datetime.utcnow() + datetime.timedelta(seconds=expires_in)).isoformat() + 'Z'
+
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        auth['verify_hash'] = token_hash
+        auth['verify_expiry'] = expiry
+        auth['email_verified'] = False
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return token
+
+    def verify_email_token(self, user_id: str, token: str) -> bool:
+        if not self.user_exists(user_id):
+            return False
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        verify_hash = auth.get('verify_hash')
+        verify_expiry = auth.get('verify_expiry')
+        if not verify_hash or not verify_expiry:
+            return False
+        try:
+            expiry_dt = datetime.datetime.fromisoformat(verify_expiry.rstrip('Z'))
+        except Exception:
+            return False
+        if datetime.datetime.utcnow() > expiry_dt:
+            return False
+        compare_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        if not secrets.compare_digest(compare_hash, verify_hash):
+            return False
+        auth.pop('verify_hash', None)
+        auth.pop('verify_expiry', None)
+        auth['email_verified'] = True
+        data['auth'] = auth
+        self.save_data(user_id, data)
+        return True
+
+    def is_email_verified(self, user_id: str) -> bool:
+        try:
+            if not self.user_exists(user_id):
+                return False
+            data = self.load_data(user_id)
+            auth = data.get('auth', {}) or {}
+            return auth.get('email_verified', True)
+        except Exception:
+            return False
+
+    def set_email_verified(self, user_id: str, verified: bool) -> None:
+        if not self.user_exists(user_id):
+            return
+        data = self.load_data(user_id)
+        auth = data.get('auth', {}) or {}
+        auth['email_verified'] = bool(verified)
+        data['auth'] = auth
+        self.save_data(user_id, data)
+
 def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     """Ensures all necessary keys exist in the loaded data."""
     # Core keys
@@ -560,6 +691,8 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     if "auth" not in data or data.get("auth") is None:
         data["auth"] = {}
     auth = data["auth"]
+    if "email_verified" not in auth:
+        auth["email_verified"] = True  # default true for existing users
     if "pw_hash" not in auth:
         # leave empty if not set
         pass

@@ -129,6 +129,37 @@ def get_active_goals(data: Dict[str, Any]) -> List[str]:
     archived = set(data.get("archived_goals", []))
     return [g for g in data.get("goals", []) if g and g not in archived]
 
+
+def _get_app_url() -> str:
+    app_url = None
+    if hasattr(st, 'secrets') and st.secrets.get('app'):
+        app_url = st.secrets.get('app', {}).get('url')
+    app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
+    return app_url.rstrip('/')
+
+
+def send_verification_email(user_id: str, email: str, storage) -> bool:
+    token = storage.create_email_verification_token(user_id)
+    if not token:
+        return False
+    app_url = _get_app_url()
+    params = {'verify_user': user_id, 'verify_token': token}
+    link = app_url + '/?' + urllib.parse.urlencode(params)
+    subject = 'XP Tracker: Verify your email'
+    body = f'Hello {user_id},\n\nPlease verify your email to activate your account:\n{link}\n\nThis link expires in 24 hours.'
+    return send_email(email, subject, body)
+
+
+def email_in_use(storage, email: str) -> bool:
+    """Check if any existing user has this email."""
+    try:
+        for u in storage.list_users():
+            if storage.get_user_email(u) == email:
+                return True
+    except Exception:
+        pass
+    return False
+
 # --- Data Management Wrappers ---
 
 def get_user_id():
@@ -1417,6 +1448,20 @@ def main():
             except Exception:
                 pass
 
+    # --- Email verification via link ---
+    verify_user = params.get('verify_user')
+    if isinstance(verify_user, list) and verify_user:
+        verify_user = verify_user[0]
+    verify_token = params.get('verify_token')
+    if isinstance(verify_token, list) and verify_token:
+        verify_token = verify_token[0]
+    if verify_user and verify_token:
+        storage = get_storage()
+        if storage.verify_email_token(verify_user, verify_token):
+            st.success(f"Email verified for {verify_user}. You can now log in.")
+        else:
+            st.error("Verification link is invalid or expired.")
+
     # --- Password reset via link handler ---
     reset_user = params.get('reset_user')
     if isinstance(reset_user, list) and reset_user:
@@ -1513,6 +1558,12 @@ def main():
                         st.error("User not found.")
                     elif not storage.verify_user_password(sb_username, sb_password):
                         st.error("Invalid password.")
+                    elif not storage.is_email_verified(sb_username):
+                        user_email = storage.get_user_email(sb_username)
+                        if user_email and send_verification_email(sb_username, user_email, storage):
+                            st.warning(f"Email not verified. Verification email re-sent to {user_email}.")
+                        else:
+                            st.error("Email not verified and resend failed.")
                     else:
                         st.session_state['user_id'] = sb_username
                         st.session_state['authenticated_user'] = sb_username
@@ -1522,30 +1573,27 @@ def main():
                 if st.button("Create"):
                     if not sb_username.strip():
                         st.error("Enter a username to create.")
-                    elif storage.user_exists(sb_username):
-                        st.error("User already exists.")
-                    else:
-                        if sb_email.strip():
-                            ok, msg = validate_email(sb_email.strip())
-                            if not ok:
-                                st.error(f"Invalid email: {msg}")
-                            else:
-                                storage.load_data(sb_username)
-                                if sb_password:
-                                    storage.set_user_password(sb_username, sb_password)
-                                storage.set_user_email(sb_username, sb_email.strip())
-                                st.session_state['user_id'] = sb_username
-                                st.session_state['authenticated_user'] = sb_username
-                                st.success(f"Created user {sb_username}")
-                                st.rerun()
-                        else:
+            elif storage.user_exists(sb_username):
+                st.error("User already exists.")
+            elif not sb_email.strip():
+                st.error("Email is required for verification.")
+            elif email_in_use(storage, sb_email.strip()):
+                st.error("That email is already in use.")
+            else:
+                ok, msg = validate_email(sb_email.strip())
+                if not ok:
+                    st.error(f"Invalid email: {msg}")
+                else:
                             storage.load_data(sb_username)
                             if sb_password:
                                 storage.set_user_password(sb_username, sb_password)
-                            st.session_state['user_id'] = sb_username
-                            st.session_state['authenticated_user'] = sb_username
-                            st.success(f"Created user {sb_username}")
-                            st.rerun()
+                            storage.set_user_email(sb_username, sb_email.strip())
+                            storage.set_email_verified(sb_username, False)
+                            if send_verification_email(sb_username, sb_email.strip(), storage):
+                                st.success(f"Account created. Verification email sent to {sb_email.strip()}.")
+                                st.info("Please verify your email to log in.")
+                            else:
+                                st.error("Failed to send verification email. Please try again.")
             if st.button("Forgot Password"):
                 if not sb_username.strip():
                     st.error("Enter your username first.")
@@ -1590,7 +1638,7 @@ def main():
 
         username = st.text_input("Username", key="main_username")
         password = st.text_input("Password", type="password", key="main_password")
-        email = st.text_input("Email (optional)", key="main_email", placeholder="you@example.com")
+        email = st.text_input("Email (required for verification)", key="main_email", placeholder="you@example.com")
         col_a, col_b = st.columns(2)
         if col_a.button("Login", key="main_login_btn"):
             if not username.strip():
@@ -1599,6 +1647,12 @@ def main():
                 st.error("User not found.")
             elif not storage.verify_user_password(username, password):
                 st.error("Invalid password.")
+            elif not storage.is_email_verified(username):
+                user_email = storage.get_user_email(username)
+                if user_email and send_verification_email(username, user_email, storage):
+                    st.warning(f"Email not verified. Verification email re-sent to {user_email}.")
+                else:
+                    st.error("Email not verified and resend failed.")
             else:
                 st.session_state['user_id'] = username
                 st.session_state['authenticated_user'] = username
@@ -1609,28 +1663,25 @@ def main():
                 st.error("Enter a username to create.")
             elif storage.user_exists(username):
                 st.error("User already exists.")
+            elif not email.strip():
+                st.error("Email is required for verification.")
+            elif email_in_use(storage, email.strip()):
+                st.error("That email is already in use.")
             else:
-                if email.strip():
-                    ok, msg = validate_email(email.strip())
-                    if not ok:
-                        st.error(f"Invalid email: {msg}")
-                    else:
-                        storage.load_data(username)
-                        if password:
-                            storage.set_user_password(username, password)
-                        storage.set_user_email(username, email.strip())
-                        st.session_state['user_id'] = username
-                        st.session_state['authenticated_user'] = username
-                        st.success(f"Created user {username}")
-                        st.rerun()
+                ok, msg = validate_email(email.strip())
+                if not ok:
+                    st.error(f"Invalid email: {msg}")
                 else:
                     storage.load_data(username)
                     if password:
                         storage.set_user_password(username, password)
-                    st.session_state['user_id'] = username
-                    st.session_state['authenticated_user'] = username
-                    st.success(f"Created user {username}")
-                    st.rerun()
+                    storage.set_user_email(username, email.strip())
+                    storage.set_email_verified(username, False)
+                    if send_verification_email(username, email.strip(), storage):
+                        st.success(f"Account created. Verification email sent to {email.strip()}.")
+                        st.info("Please verify your email to log in.")
+                    else:
+                        st.error("Failed to send verification email. Please try again.")
 
         if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
             st.warning("Add [firebase_auth] (apiKey, authDomain, appId, projectId) to secrets.toml to enable Google sign-in.")
