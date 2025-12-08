@@ -1389,7 +1389,10 @@ def main():
         st.session_state['google_id_token'] = redirect_token
         # Clean URL
         clean_params = {k: v for k, v in params.items() if k != 'google_token'}
-        st.query_params = clean_params
+        try:
+            st.experimental_set_query_params(**{k: v for k, v in clean_params.items()})
+        except Exception:
+            pass
 
     # --- Password reset via link handler ---
     reset_user = params.get('reset_user', [None])[0]
