@@ -1345,7 +1345,7 @@ def render_google_redirect_button():
     if not cfg:
         return
     cfg_json = json.dumps(dict(cfg))
-    html = f"""
+    html = """
     <div id="google-redirect-wrap" style="margin-top:12px;">
       <button id="google-redirect-btn" style="padding:14px 16px;border-radius:8px;background:#fff;color:#111;border:2px solid #222;font-weight:700;font-size:16px;cursor:pointer;width:100%;">Sign in with Google</button>
     </div>
@@ -1366,7 +1366,7 @@ def render_google_redirect_button():
               url.searchParams.set('google_token', tok);
               window.location.href = url.toString();
             }});
-          }
+          }}
         }}).catch(err => console.log('Redirect result error', err));
         const btn = document.getElementById("google-redirect-btn");
         if (btn) {{
@@ -1376,7 +1376,7 @@ def render_google_redirect_button():
         }}
       }})();
     </script>
-    """
+    """.format(cfg_json=cfg_json)
     st.markdown(html, unsafe_allow_html=True)
 
 # --- Main App Layout ---
