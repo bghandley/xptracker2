@@ -1498,6 +1498,16 @@ def main():
 
         # Redirect-based Google login (works outside iframe sandbox)
         render_google_redirect_button()
+        st.markdown(
+            """
+            <div style="margin-top:10px;">
+              <a href="https://gamify-life.streamlit.app/" target="_blank" rel="noopener" style="color:#EDCFA9;font-weight:600;">
+                Open sign-in in a new tab (recommended)
+              </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         if not (hasattr(st, "secrets") and st.secrets.get("firebase_auth")):
             st.warning("Add [firebase_auth] (apiKey, authDomain, appId, projectId) to secrets.toml to enable Google sign-in.")
