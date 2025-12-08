@@ -1302,6 +1302,16 @@ def render_google_login_button(primary: bool = False):
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script>
+      // Streamlit component messaging helpers
+      function sendHeight(h) {{
+        window.parent.postMessage({{type: "streamlit:setFrameHeight", height: h}}, "*");
+      }}
+      function sendValue(v) {{
+        window.parent.postMessage({{type: "streamlit:componentValue", value: v}}, "*");
+      }}
+      window.parent.postMessage({{type: "streamlit:componentReady", apiVersion: 1}}, "*");
+      sendHeight(document.documentElement.clientHeight);
+
       const cfg = {cfg_json};
       if (!firebase.apps.length) {{
         firebase.initializeApp(cfg);
@@ -1314,12 +1324,7 @@ def render_google_login_button(primary: bool = False):
           auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
             .then(result => result.user.getIdToken())
             .then(token => {{
-              const Streamlit = window.parent.Streamlit || window.Streamlit;
-              if (Streamlit && Streamlit.setComponentValue) {{
-                Streamlit.setComponentValue(token);
-              }} else {{
-                window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:setComponentValue", value: token}}, "*");
-              }}
+              sendValue(token);
             }})
             .catch(err => {{
               console.log("Google sign-in error", err);
