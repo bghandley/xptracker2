@@ -1,0 +1,27 @@
+*** Begin Patch
+*** Update File: tracker.py
+@@ def render_google_redirect_button():
+-        const btn = document.getElementById("google-redirect-btn");
+-        if (btn) {
+-          btn.onclick = () => {
+-            auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider());
+-          };
+-        }
++        const btn = document.getElementById("google-redirect-btn");
++        if (btn) {
++          btn.onclick = () => {
++            // Use popup instead of redirect to avoid third‑party cookie issues on Streamlit Cloud
++            auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
++              .then(res => {
++                if (res && res.user) {
++                  res.user.getIdToken().then(tok => {
++                    const url = new URL(window.location.href);
++                    url.searchParams.set('google_token', tok);
++                    window.location.href = url.toString();
++                  });
++                }
++              })
++              .catch(err => console.log('Popup sign‑in error', err));
++          };
++        }
+*** End Patch
