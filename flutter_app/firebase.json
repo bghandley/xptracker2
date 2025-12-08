@@ -1,0 +1,28 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "xptracking-68d6d",
+          "appId": "1:866226287472:android:236340a69bfcb0526ad5b5",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "xptracking-68d6d",
+          "configurations": {
+            "android": "1:866226287472:android:236340a69bfcb0526ad5b5",
+            "ios": "1:866226287472:ios:d9c2c47bd3ec1a666ad5b5",
+            "macos": "1:866226287472:ios:d9c2c47bd3ec1a666ad5b5",
+            "web": "1:866226287472:web:4a3f8170522068866ad5b5",
+            "windows": "1:866226287472:web:73f1f311d77379ee6ad5b5"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
