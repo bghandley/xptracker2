@@ -60,19 +60,23 @@ st.markdown(
     }
     .stApp {
         background-color: var(--bg-obsidian);
-        color: var(--pearl);
+        color: var(--bronze);
     }
     .stApp, .stMarkdown, .css-18e3th9, .css-1d391kg {
         font-family: 'Libre Baskerville', serif;
+        color: var(--bronze);
+    }
+    .stMarkdown p, .stMarkdown li, .stMarkdown div {
+        color: var(--bronze);
     }
     h1, h2, h3, h4, h5, h6, .stTabs [data-baseweb="tab"] {
         font-family: 'Cinzel', serif !important;
         letter-spacing: 0.5px;
-        color: var(--pearl);
+        color: var(--gold);
     }
     .stTabs [data-baseweb="tab"] {
         background: var(--ash);
-        color: var(--pearl);
+        color: var(--bronze);
         border-radius: 6px;
         margin-right: 6px;
         padding: 8px 12px;
@@ -92,7 +96,7 @@ st.markdown(
     }
     .stTextInput>div>input, .stSelectbox>div>div>select, .stTextArea>div>textarea, .stNumberInput input, .stDateInput input {
         background: var(--ash);
-        color: var(--pearl);
+        color: var(--gold);
         border-radius: 6px;
         border: 1px solid var(--bronze);
     }
