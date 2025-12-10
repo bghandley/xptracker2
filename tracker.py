@@ -3,7 +3,7 @@ import datetime
 import json
 import time
 import uuid
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import pandas as pd
 import plotly.express as px
 import streamlit.components.v1 as components
@@ -127,6 +127,7 @@ PRIORITY_MAP = {
     "Medium": "🟡",
     "Low": "🔵"
 }
+PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
 
 def get_active_goals(data: Dict[str, Any]) -> List[str]:
     """Return non-archived goals in stored order."""
@@ -1151,6 +1152,70 @@ def toggle_habit(habit_name: str, date_str: str):
 
 # --- Task Actions ---
 
+def parse_task_due_date(task: Dict[str, Any]) -> Optional[datetime.date]:
+    """Return a date object for the task due date, or None if unset/invalid."""
+    due_str = task.get("due_date")
+    if not due_str:
+        return None
+    try:
+        return datetime.date.fromisoformat(due_str)
+    except Exception:
+        return None
+
+
+def get_due_bucket_label(due_date: Optional[datetime.date]) -> str:
+    """Human buckets for grouping tasks by due date."""
+    today = datetime.date.today()
+    if due_date is None:
+        return "No Date"
+    if due_date < today:
+        return "Overdue"
+    if due_date == today:
+        return "Today"
+    if due_date == today + datetime.timedelta(days=1):
+        return "Tomorrow"
+    if due_date <= today + datetime.timedelta(days=7):
+        return "This Week"
+    if due_date <= today + datetime.timedelta(days=14):
+        return "Next Week"
+    return "Later"
+
+
+def task_sort_key(task: Dict[str, Any]) -> Tuple[datetime.date, int, str]:
+    """Sort tasks by due date, priority, then created timestamp."""
+    due_date = parse_task_due_date(task)
+    priority_rank = PRIORITY_ORDER.get(task.get("priority"), len(PRIORITY_ORDER))
+    created_at = task.get("created_at", "")
+    return (due_date or datetime.date.max, priority_rank, created_at)
+
+
+def bucket_tasks_by_due_and_goal(tasks: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    """Group tasks by due-date bucket then goal."""
+    bucketed: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for task in tasks:
+        bucket = get_due_bucket_label(parse_task_due_date(task))
+        goal = task.get("goal", "General")
+        bucketed.setdefault(bucket, {}).setdefault(goal, []).append(task)
+    for goal_map in bucketed.values():
+        for goal, goal_tasks in goal_map.items():
+            goal_tasks.sort(key=task_sort_key)
+    return bucketed
+
+
+def format_due_label(due_date: Optional[datetime.date]) -> str:
+    """Short label for a task due date."""
+    if not due_date:
+        return "No due date"
+    today = datetime.date.today()
+    if due_date < today:
+        return f"Overdue: {due_date.strftime('%b %d')}"
+    if due_date == today:
+        return "Due: Today"
+    if due_date == today + datetime.timedelta(days=1):
+        return "Due: Tomorrow"
+    return f"Due: {due_date.strftime('%b %d')}"
+
+
 def add_task(title, desc, xp, goal, priority, due_date, context="General", cadence="One-Off"):
     data = load_data()
     new_task = {
@@ -1183,6 +1248,39 @@ def delete_task(task_id):
     data = load_data()
     data["tasks"] = [t for t in data["tasks"] if t["id"] != task_id]
     save_data(data)
+
+
+def render_task_row(task: Dict[str, Any], key_suffix: str = ""):
+    """Render a mission with actions and meta info."""
+    p_icon = PRIORITY_MAP.get(task.get("priority", "Low"), "🔵")
+    due_date = parse_task_due_date(task)
+    due_label = format_due_label(due_date)
+    with st.container():
+        tc1, tc2, tc3, tc4 = st.columns([0.5, 4, 1, 1])
+        with tc1:
+            if st.button("Complete", key=f"btn_done_{task['id']}{key_suffix}", help="Mark Complete"):
+                toggle_task_status(task['id'], "Done")
+                st.rerun()
+        with tc2:
+            st.markdown(f"**{p_icon} {task['title']}**")
+            meta_parts = [
+                task.get("goal", "General"),
+                task.get("context", "General"),
+                task.get("cadence", "One-Off"),
+                due_label,
+            ]
+            st.caption(" • ".join(meta_parts))
+        with tc3:
+            st.markdown(f"**+{task.get('xp', 0)} XP**")
+        with tc4:
+            if st.button("Delete", key=f"del_{task['id']}{key_suffix}"):
+                delete_task(task['id'])
+                st.rerun()
+
+        if task.get("description"):
+            with st.expander("Details"):
+                st.write(task["description"])
+    st.divider()
 
 # --- Journal Actions ---
 
@@ -2221,6 +2319,12 @@ def main():
         # Filters and Tabs for Tasks
         filter_tasks_context = st.selectbox("Filter missions by context", options=["All", "Work", "Personal", "Health", "Creativity", "Admin"], index=0)
         filter_tasks_cadence = st.selectbox("Filter missions by cadence", options=["All", "One-Off", "Daily", "3x/Week", "Weekly"], index=0)
+        task_view_mode = st.radio(
+            "Organize missions",
+            ["Group by due date & goal", "Flat priority list"],
+            index=0,
+            horizontal=True,
+        )
 
         t_tab_active, t_tab_done = st.tabs(["Active Missions", "Completed Missions"])
         
@@ -2234,33 +2338,24 @@ def main():
             if not active_tasks:
                 st.info("No active missions. Good job... or get to work!")
             else:
-                # Sort by Priority (High -> Low)
-                priority_order = {"High": 0, "Medium": 1, "Low": 2}
-                active_tasks.sort(key=lambda x: priority_order.get(x["priority"], 3))
-
-                for task in active_tasks:
-                    p_icon = PRIORITY_MAP.get(task["priority"], "🔵")
-                    
-                    with st.container():
-                        tc1, tc2, tc3, tc4 = st.columns([0.5, 4, 1, 1])
-                        with tc1:
-                            if st.button("⬜", key=f"btn_done_{task['id']}", help="Mark Complete"):
-                                toggle_task_status(task['id'], "Done")
-                                st.rerun()
-                        with tc2:
-                            st.markdown(f"**{p_icon} {task['title']}**")
-                            st.caption(f"{task['goal']} • {task.get('context', 'General')} • {task.get('cadence', 'One-Off')} • Due: {task['due_date'] if task['due_date'] else 'No Date'}")
-                        with tc3:
-                            st.markdown(f"**+{task['xp']} XP**")
-                        with tc4:
-                             if st.button("🗑️", key=f"del_{task['id']}"):
-                                 delete_task(task['id'])
-                                 st.rerun()
-                        
-                        if task['description']:
-                            with st.expander("Details"):
-                                st.write(task['description'])
+                if task_view_mode == "Group by due date & goal":
+                    bucket_order = ["Overdue", "Today", "Tomorrow", "This Week", "Next Week", "Later", "No Date"]
+                    grouped = bucket_tasks_by_due_and_goal(active_tasks)
+                    for bucket in bucket_order:
+                        goal_map = grouped.get(bucket, {})
+                        if not goal_map:
+                            continue
+                        bucket_count = sum(len(tasks) for tasks in goal_map.values())
+                        st.subheader(f"{bucket} ({bucket_count})")
+                        for goal in sorted(goal_map.keys()):
+                            st.markdown(f"**{goal}**")
+                            for task in goal_map[goal]:
+                                render_task_row(task, key_suffix=f"_{bucket}_{goal}")
                         st.divider()
+                else:
+                    active_tasks.sort(key=task_sort_key)
+                    for task in active_tasks:
+                        render_task_row(task)
 
         # COMPLETED TASKS
         with t_tab_done:
