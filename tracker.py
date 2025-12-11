@@ -1375,7 +1375,24 @@ def delete_task(task_id):
     save_data(data)
 
 
-def render_task_row(task: Dict[str, Any], key_suffix: str = ""):
+def update_task(task_id: str, title: str, desc: str, xp: int, goal: str, priority: str, due_date: Optional[datetime.date], context: str, cadence: str):
+    """Update mission fields and persist."""
+    data = load_data()
+    for task in data["tasks"]:
+        if task["id"] == task_id:
+            task["title"] = title
+            task["description"] = desc
+            task["xp"] = xp
+            task["goal"] = goal
+            task["priority"] = priority
+            task["due_date"] = due_date.isoformat() if due_date else None
+            task["context"] = context
+            task["cadence"] = cadence
+            break
+    save_data(data)
+
+
+def render_task_row(task: Dict[str, Any], key_suffix: str = "", goals: Optional[List[str]] = None):
     """Render a mission with actions and meta info."""
     p_icon = PRIORITY_MAP.get(task.get("priority", "Low"), "🔵")
     due_date = parse_task_due_date(task)
@@ -1405,6 +1422,48 @@ def render_task_row(task: Dict[str, Any], key_suffix: str = ""):
         if task.get("description"):
             with st.expander("Details"):
                 st.write(task["description"])
+
+        with st.expander("Edit mission"):
+            form_key = f"edit_task_{task['id']}{key_suffix}"
+            with st.form(form_key):
+                goal_options = goals or []
+                current_goal = task.get("goal", "General")
+                if current_goal and current_goal not in goal_options:
+                    goal_options = list(goal_options) + [current_goal]
+                if not goal_options:
+                    goal_options = [current_goal or "General"]
+                context_options = ["General", "Work", "Personal", "Health", "Creativity", "Admin"]
+                current_context = task.get("context", "General")
+
+                title_val = st.text_input("Title", value=task.get("title", ""), key=f"title_{form_key}")
+                desc_val = st.text_area("Description", value=task.get("description", ""), key=f"desc_{form_key}")
+                goal_val = st.selectbox("Goal", options=goal_options, index=goal_options.index(current_goal) if current_goal in goal_options else 0, key=f"goal_{form_key}")
+                ctx_default_idx = context_options.index(current_context) if current_context in context_options else 0
+                ctx_val = st.selectbox("Context", options=context_options, index=ctx_default_idx, key=f"ctx_{form_key}")
+                cad_val = st.selectbox("Cadence", options=["One-Off", "Daily", "3x/Week", "Weekly"], index=["One-Off", "Daily", "3x/Week", "Weekly"].index(task.get("cadence", "One-Off")) if task.get("cadence", "One-Off") in ["One-Off", "Daily", "3x/Week", "Weekly"] else 0, key=f"cad_{form_key}")
+                priority_val = st.selectbox("Priority", options=["High", "Medium", "Low"], index=["High", "Medium", "Low"].index(task.get("priority", "Medium")) if task.get("priority", "Medium") in ["High", "Medium", "Low"] else 1, key=f"priority_{form_key}")
+                xp_val = st.number_input("XP", min_value=5, max_value=300, value=int(task.get("xp", 50)), step=5, key=f"xp_{form_key}")
+                due_val = st.date_input("Due date (optional)", value=due_date, key=f"due_{form_key}")
+                clear_due = st.checkbox("Remove due date", value=False, key=f"clear_due_{form_key}")
+
+                if st.form_submit_button("Save changes"):
+                    if not title_val.strip():
+                        st.error("Title is required.")
+                    else:
+                        final_due = None if clear_due else due_val
+                        update_task(
+                            task["id"],
+                            title_val.strip(),
+                            desc_val.strip(),
+                            int(xp_val),
+                            goal_val,
+                            priority_val,
+                            final_due,
+                            ctx_val,
+                            cad_val,
+                        )
+                        st.success("Mission updated.")
+                        st.rerun()
     st.divider()
 
 # --- Journal Actions ---
@@ -2543,12 +2602,12 @@ def main():
                         for goal in sorted(goal_map.keys()):
                             st.markdown(f"**{goal}**")
                             for task in goal_map[goal]:
-                                render_task_row(task, key_suffix=f"_{bucket}_{goal}")
+                                render_task_row(task, key_suffix=f"_{bucket}_{goal}", goals=active_goals)
                         st.divider()
                 else:
                     active_tasks.sort(key=task_sort_key)
                     for task in active_tasks:
-                        render_task_row(task)
+                        render_task_row(task, goals=active_goals)
 
         # COMPLETED TASKS
         with t_tab_done:

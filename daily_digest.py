@@ -13,7 +13,7 @@ This replaces per-completion notifications for a cleaner experience.
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 try:
     from zoneinfo import ZoneInfo
@@ -228,6 +228,36 @@ def _tz_abbr(tz_name: str) -> str:
     if len(short) <= 4:
         return short.upper()
     return tz_name
+
+
+def _parse_task_due_date(task: Dict[str, Any]) -> Optional[date]:
+    """Parse a task due date (stored as ISO date)."""
+    due_str = task.get("due_date")
+    if not due_str:
+        return None
+    try:
+        return date.fromisoformat(due_str)
+    except Exception:
+        try:
+            return datetime.fromisoformat(due_str).date()
+        except Exception:
+            return None
+
+
+def _tasks_due_today(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return tasks that are Todo and due today or overdue."""
+    today = datetime.now().date()
+    tasks = []
+    for task in data.get("tasks", []):
+        if task.get("status") != "Todo":
+            continue
+        due = _parse_task_due_date(task)
+        if due and due <= today:
+            task_copy = dict(task)
+            task_copy["_due_date_obj"] = due
+            tasks.append(task_copy)
+    tasks.sort(key=lambda t: (t["_due_date_obj"], t.get("priority", ""), t.get("title", "")))
+    return tasks
 
 
 
