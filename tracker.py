@@ -130,11 +130,20 @@ PRIORITY_MAP = {
     "Low": "🔵"
 }
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
-MISSION_CSV_TEMPLATE = """due_date,title,description,goal,priority,xp,context,cadence
+MISSION_CSV_TEMPLATE_DEFAULT = """due_date,title,description,goal,priority,xp,context,cadence
 2025-12-11,Create two QR codes: Tickets + VIP add-on.,Create two QR codes: Tickets + VIP add-on.,General,Medium,50,Work,One-Off
 2025-12-11,Set autoresponder email asking for guest name/email after purchase.,Set autoresponder email asking for guest name/email after purchase.,General,Medium,50,Work,One-Off
 2025-12-11,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,General,Medium,50,Work,One-Off
 """
+
+
+def get_mission_csv_template() -> str:
+    """Return the mission CSV template, reading from file if available."""
+    try:
+        with open("missions_template.csv", "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return MISSION_CSV_TEMPLATE_DEFAULT
 
 def get_active_goals(data: Dict[str, Any]) -> List[str]:
     """Return non-archived goals in stored order."""
@@ -2442,7 +2451,7 @@ def main():
             )
             st.download_button(
                 label="Download CSV template",
-                data=MISSION_CSV_TEMPLATE,
+                data=get_mission_csv_template(),
                 file_name="missions_template.csv",
                 mime="text/csv",
                 key="download_mission_template",
