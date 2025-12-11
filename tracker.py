@@ -131,10 +131,13 @@ PRIORITY_MAP = {
 }
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
 NO_DUE_UPDATE = object()
-MISSION_CSV_TEMPLATE_DEFAULT = """due_date,title,description,goal,priority,xp,context,cadence
-2025-12-11,Create two QR codes: Tickets + VIP add-on.,Create two QR codes: Tickets + VIP add-on.,General,Medium,50,Work,One-Off
-2025-12-11,Set autoresponder email asking for guest name/email after purchase.,Set autoresponder email asking for guest name/email after purchase.,General,Medium,50,Work,One-Off
-2025-12-11,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,General,Medium,50,Work,One-Off
+NO_TAG_UPDATE = object()
+MISSION_CSV_TEMPLATE_DEFAULT = """due_date,title,description,goal,priority,xp,context,cadence,tags
+2025-12-11,Create two QR codes: Tickets + VIP add-on.,Create two QR codes: Tickets + VIP add-on.,General,Medium,50,Work,One-Off,"launch,qr"
+2025-12-11,Set autoresponder email asking for guest name/email after purchase.,Set autoresponder email asking for guest name/email after purchase.,General,Medium,50,Work,One-Off,"email,ops"
+2025-12-11,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,General,Medium,50,Work,One-Off,"list,prep"
+2025-12-11,Send A-list invites (10) using short DM/text script.,Send A-list invites (10) using short DM/text script.,General,Medium,50,Work,One-Off,"outreach,vip"
+2025-12-11,Post soft teaser on socials: date + BOBAF concept (no link yet).,Post soft teaser on socials: date + BOBAF concept (no link yet).,General,Medium,50,Work,One-Off,"social,teaser"
 """
 
 
@@ -998,7 +1001,7 @@ def render_guided_setup():
                     added_count += 1
 
                 if rec.get("add_task"):
-                    add_task(rec["name"].strip(), rec.get("description", ""), rec["xp"], rec["goal"], rec.get("task_priority", "Medium"), None, rec.get("context", "General"), rec.get("cadence", "One-Off"))
+                    add_task(rec["name"].strip(), rec.get("description", ""), rec["xp"], rec["goal"], rec.get("task_priority", "Medium"), None, rec.get("context", "General"), rec.get("cadence", "One-Off"), [])
                     task_added_count += 1
 
             if added_count or task_added_count:
@@ -1290,17 +1293,43 @@ def normalize_context(raw: str) -> str:
     return val.capitalize()
 
 
+def normalize_tags(raw: Any) -> List[str]:
+    """Normalize tags input into a unique, trimmed list."""
+    if raw is None:
+        return []
+    tags: List[str] = []
+    if isinstance(raw, str):
+        raw_items = [p.strip() for p in raw.split(",")]
+        tags = [t for t in raw_items if t]
+    elif isinstance(raw, Iterable):
+        for item in raw:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                tags.append(text)
+    # Deduplicate while preserving order
+    seen = set()
+    deduped: List[str] = []
+    for t in tags:
+        if t.lower() in seen:
+            continue
+        seen.add(t.lower())
+        deduped.append(t)
+    return deduped
+
+
 def parse_csv_missions(csv_text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Parse missions from CSV text.
-    Expected headers: due_date, title, description, goal, priority, xp, context, cadence
+    Expected headers: due_date, title, description, goal, priority, xp, context, cadence, tags
     Returns (missions, errors)
     """
     missions: List[Dict[str, Any]] = []
     errors: List[str] = []
     reader = csv.DictReader(io.StringIO(csv_text))
 
-    expected_headers = ["due_date", "title", "description", "goal", "priority", "xp", "context", "cadence"]
+    expected_headers = ["due_date", "title", "description", "goal", "priority", "xp", "context", "cadence", "tags"]
     if not reader.fieldnames:
         errors.append("CSV is missing headers. Expected: " + ", ".join(expected_headers))
         return missions, errors
@@ -1337,13 +1366,15 @@ def parse_csv_missions(csv_text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
             "context": context,
             "xp": xp_val,
             "due_date": due_date,
+            "tags": normalize_tags(row.get("tags", "")),
         })
 
     return missions, errors
 
 
-def add_task(title, desc, xp, goal, priority, due_date, context="General", cadence="One-Off"):
+def add_task(title, desc, xp, goal, priority, due_date, context="General", cadence="One-Off", tags=None):
     data = load_data()
+    tags_list = normalize_tags(tags)
     new_task = {
         "id": str(uuid.uuid4()),
         "title": title,
@@ -1355,7 +1386,8 @@ def add_task(title, desc, xp, goal, priority, due_date, context="General", caden
         "status": "Todo",
         "created_at": datetime.datetime.now().isoformat(),
         "context": context,
-        "cadence": cadence
+        "cadence": cadence,
+        "tags": tags_list,
     }
     data["tasks"].append(new_task)
     save_data(data)
@@ -1376,7 +1408,7 @@ def delete_task(task_id):
     save_data(data)
 
 
-def update_task(task_id: str, title: str, desc: str, xp: int, goal: str, priority: str, due_date: Optional[datetime.date], context: str, cadence: str):
+def update_task(task_id: str, title: str, desc: str, xp: int, goal: str, priority: str, due_date: Optional[datetime.date], context: str, cadence: str, tags: Optional[List[str]] = None):
     """Update mission fields and persist."""
     data = load_data()
     for task in data["tasks"]:
@@ -1389,6 +1421,8 @@ def update_task(task_id: str, title: str, desc: str, xp: int, goal: str, priorit
             task["due_date"] = due_date.isoformat() if due_date else None
             task["context"] = context
             task["cadence"] = cadence
+            if tags is not None:
+                task["tags"] = normalize_tags(tags)
             break
     save_data(data)
 
@@ -1415,6 +1449,7 @@ def bulk_update_tasks(
     due_date: Any = NO_DUE_UPDATE,
     context: Optional[str] = None,
     cadence: Optional[str] = None,
+    tags: Any = NO_TAG_UPDATE,
 ) -> int:
     """Apply shared updates to multiple missions."""
     ids = set(task_ids)
@@ -1436,6 +1471,8 @@ def bulk_update_tasks(
             task["cadence"] = cadence
         if due_date is not NO_DUE_UPDATE:
             task["due_date"] = due_date.isoformat() if due_date else None
+        if tags is not NO_TAG_UPDATE:
+            task["tags"] = normalize_tags(tags)
         updated += 1
 
     if updated:
@@ -1493,6 +1530,9 @@ def render_task_row(
                 due_label,
             ]
             st.caption(" • ".join(meta_parts))
+            tags = task.get("tags") or []
+            if tags:
+                st.caption("Tags: " + ", ".join(tags))
         with tc3:
             st.markdown(f"**+{task.get('xp', 0)} XP**")
         with tc4:
@@ -1526,6 +1566,7 @@ def render_task_row(
                 xp_val = st.number_input("XP", min_value=5, max_value=300, value=int(task.get("xp", 50)), step=5, key=f"xp_{form_key}")
                 due_val = st.date_input("Due date (optional)", value=due_date, key=f"due_{form_key}")
                 clear_due = st.checkbox("Remove due date", value=False, key=f"clear_due_{form_key}")
+                tags_val = st.text_input("Tags (comma-separated)", value=", ".join(task.get("tags", [])), key=f"tags_{form_key}")
 
                 if st.form_submit_button("Save changes"):
                     if not title_val.strip():
@@ -1542,6 +1583,7 @@ def render_task_row(
                             final_due,
                             ctx_val,
                             cad_val,
+                            normalize_tags(tags_val),
                         )
                         st.success("Mission updated.")
                         st.rerun()
@@ -2496,10 +2538,11 @@ def main():
                     task_due = st.date_input("Due Date", value=None)
                     
                 task_desc = st.text_area("Description (Optional)")
+                task_tags = st.text_input("Tags (comma-separated)", value="", key="task_tags")
                 
                 if st.form_submit_button("Add Mission"):
                     if task_title:
-                        add_task(task_title, task_desc, task_xp, task_goal, task_priority, task_due, task_context, task_cadence)
+                        add_task(task_title, task_desc, task_xp, task_goal, task_priority, task_due, task_context, task_cadence, normalize_tags(task_tags))
                         st.success("Mission Added!")
                         st.rerun()
                     else:
@@ -2554,6 +2597,7 @@ def main():
                     except Exception:
                         due_default = None
                 due_date = st.date_input("Due date (optional)", value=due_default, key=f"task_rec_due_{i}")
+                tags_val = st.text_input("Tags (comma-separated)", value=", ".join(rec.get("tags", [])) if rec.get("tags") else "", key=f"task_rec_tags_{i}")
                 pick = st.checkbox("Add this mission", value=True, key=f"task_rec_pick_{i}")
                 st.divider()
                 updated_tasks.append({
@@ -2566,13 +2610,14 @@ def main():
                     "xp": int(xp_val),
                     "due_date": due_date,
                     "pick": pick,
+                    "tags": normalize_tags(tags_val),
                 })
 
             if st.button("Add selected missions", key="add_ai_tasks"):
                 added_count = 0
                 for rec in updated_tasks:
                     if rec["pick"] and rec["title"].strip():
-                        add_task(rec["title"].strip(), rec["description"], rec["xp"], rec["goal"], rec["priority"], rec["due_date"], rec.get("context", "General"), rec.get("cadence", "One-Off"))
+                        add_task(rec["title"].strip(), rec["description"], rec["xp"], rec["goal"], rec["priority"], rec["due_date"], rec.get("context", "General"), rec.get("cadence", "One-Off"), rec.get("tags", []))
                         added_count += 1
                 if added_count:
                     st.session_state["task_recs"] = []
@@ -2586,7 +2631,7 @@ def main():
         # CSV Importer
         with st.expander("📥 Import missions from CSV"):
             st.markdown(
-                "Upload or paste a CSV with headers: `due_date,title,description,goal,priority,xp,context,cadence` "
+                "Upload or paste a CSV with headers: `due_date,title,description,goal,priority,xp,context,cadence,tags` "
                 "(dates accepted as YYYY-MM-DD or MM/DD/YYYY). Missing fields fall back to sensible defaults."
             )
             st.download_button(
@@ -2638,13 +2683,14 @@ def main():
                         "xp": m["xp"],
                         "context": m["context"],
                         "cadence": m["cadence"],
+                        "tags": ", ".join(m.get("tags", [])),
                     })
                 st.dataframe(pd.DataFrame(preview_rows))
 
                 if not preview_errors:
                     if st.button(f"Import {len(preview_missions)} missions", key="import_task_csv"):
                         for m in preview_missions:
-                            add_task(m["title"], m["description"], m["xp"], m["goal"], m["priority"], m["due_date"], m.get("context", "General"), m.get("cadence", "One-Off"))
+                            add_task(m["title"], m["description"], m["xp"], m["goal"], m["priority"], m["due_date"], m.get("context", "General"), m.get("cadence", "One-Off"), m.get("tags", []))
                         st.session_state.pop("task_import_preview", None)
                         st.success(f"Imported {len(preview_missions)} mission(s).")
                         st.rerun()
@@ -2712,6 +2758,16 @@ def main():
                         bulk_due_date = None
                         if due_action == "Set date":
                             bulk_due_date = st.date_input("New due date", value=datetime.date.today(), key="bulk_due_date")
+                        tags_action = st.radio(
+                            "Tags",
+                            ["No change", "Set tags", "Clear tags"],
+                            index=0,
+                            horizontal=True,
+                            key="bulk_tags_action",
+                        )
+                        bulk_tags_val = ""
+                        if tags_action == "Set tags":
+                            bulk_tags_val = st.text_input("Tags to apply (comma-separated)", value="", key="bulk_tags_input")
                         priority_choice = st.selectbox(
                             "Priority",
                             ["No change", "High", "Medium", "Low"],
@@ -2749,6 +2805,11 @@ def main():
                                     due_value = bulk_due_date
                                 elif due_action == "Clear due date":
                                     due_value = None
+                                tags_value = NO_TAG_UPDATE
+                                if tags_action == "Set tags":
+                                    tags_value = normalize_tags(bulk_tags_val)
+                                elif tags_action == "Clear tags":
+                                    tags_value = []
                                 updates = bulk_update_tasks(
                                     selected_ids,
                                     goal=None if goal_choice == "No change" else goal_choice,
@@ -2756,6 +2817,7 @@ def main():
                                     due_date=due_value,
                                     context=None if context_choice == "No change" else context_choice,
                                     cadence=None if cadence_choice == "No change" else cadence_choice,
+                                    tags=tags_value,
                                 )
                                 if updates:
                                     st.success(f"Updated {updates} mission(s).")
@@ -3245,6 +3307,7 @@ Welcome to Heroic Everyday — a clean, business-friendly tracker with playful e
 **How do I use missions to support goals?**  
 - Translate goals into specific missions (proposals, outreach, prep). Tie each mission to a goal; finish it for XP and real movement.
 - Use context tags to batch similar work; export missions to calendar (.ics) if you want them on your schedule.
+- Add mission tags (comma-separated) to group related work and keep CSV imports/exports tidy.
 
 **What if I’m not motivated?**  
 - Motivation is optional. Systems win. Do the tiny version anyway; XP keeps you invested.

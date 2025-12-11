@@ -145,6 +145,7 @@ As you level up, you gain a **Rank**. Ranks are displayed on your Profile:
    - **Priority**: High (🔴), Medium (🟡), or Low (🔵)
    - **XP Reward**: Points you'll earn (e.g., 100)
    - **Due Date**: When you want to complete it
+   - **Tags**: Optional comma-separated labels (e.g., `client,prep`)
    - **Description**: Details about the task
 4. Click **"Submit"**
 
@@ -161,6 +162,11 @@ As you level up, you gain a **Rank**. Ranks are displayed on your Profile:
 - **Active Missions**: Tasks you haven't completed yet
 - **Completed Missions**: Tasks you've finished (sorted by date)
 - **Overdue**: Tasks past their due date (appear highlighted)
+
+### Tagging Missions
+- Add tags when creating or editing a mission to keep related work grouped.
+- Tags export/import via CSV using a `tags` column with comma-separated values.
+- Bulk update lets you set or clear tags across multiple selected missions.
 
 ---
 

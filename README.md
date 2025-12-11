@@ -101,6 +101,7 @@ Visit http://localhost:8501
 - Create one-off tasks
 - Assign to goals
 - Track completion
+- Tag missions (comma-separated) and import/export via CSV
 
 ### Journal
 - Create dated entries
