@@ -5,7 +5,7 @@ import time
 import uuid
 import csv
 import io
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Iterable, Set
 import pandas as pd
 import plotly.express as px
 import streamlit.components.v1 as components
@@ -130,6 +130,7 @@ PRIORITY_MAP = {
     "Low": "🔵"
 }
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+NO_DUE_UPDATE = object()
 MISSION_CSV_TEMPLATE_DEFAULT = """due_date,title,description,goal,priority,xp,context,cadence
 2025-12-11,Create two QR codes: Tickets + VIP add-on.,Create two QR codes: Tickets + VIP add-on.,General,Medium,50,Work,One-Off
 2025-12-11,Set autoresponder email asking for guest name/email after purchase.,Set autoresponder email asking for guest name/email after purchase.,General,Medium,50,Work,One-Off
@@ -1392,13 +1393,93 @@ def update_task(task_id: str, title: str, desc: str, xp: int, goal: str, priorit
     save_data(data)
 
 
-def render_task_row(task: Dict[str, Any], key_suffix: str = "", goals: Optional[List[str]] = None):
+def bulk_delete_tasks(task_ids: Iterable[str]) -> int:
+    """Delete multiple missions at once and return the count removed."""
+    ids = set(task_ids)
+    if not ids:
+        return 0
+    data = load_data()
+    before = len(data["tasks"])
+    data["tasks"] = [t for t in data["tasks"] if t["id"] not in ids]
+    deleted = before - len(data["tasks"])
+    if deleted:
+        save_data(data)
+    return deleted
+
+
+def bulk_update_tasks(
+    task_ids: Iterable[str],
+    *,
+    goal: Optional[str] = None,
+    priority: Optional[str] = None,
+    due_date: Any = NO_DUE_UPDATE,
+    context: Optional[str] = None,
+    cadence: Optional[str] = None,
+) -> int:
+    """Apply shared updates to multiple missions."""
+    ids = set(task_ids)
+    if not ids:
+        return 0
+
+    data = load_data()
+    updated = 0
+    for task in data["tasks"]:
+        if task["id"] not in ids:
+            continue
+        if goal is not None:
+            task["goal"] = goal
+        if priority is not None:
+            task["priority"] = priority
+        if context is not None:
+            task["context"] = context
+        if cadence is not None:
+            task["cadence"] = cadence
+        if due_date is not NO_DUE_UPDATE:
+            task["due_date"] = due_date.isoformat() if due_date else None
+        updated += 1
+
+    if updated:
+        save_data(data)
+    return updated
+
+
+def render_task_row(
+    task: Dict[str, Any],
+    key_suffix: str = "",
+    goals: Optional[List[str]] = None,
+    selectable: bool = False,
+    selected_task_ids: Optional[Set[str]] = None,
+):
     """Render a mission with actions and meta info."""
     p_icon = PRIORITY_MAP.get(task.get("priority", "Low"), "🔵")
     due_date = parse_task_due_date(task)
     due_label = format_due_label(due_date)
     with st.container():
-        tc1, tc2, tc3, tc4 = st.columns([0.5, 4, 1, 1])
+        tc_select = None
+        if selectable:
+            tc_select, tc1, tc2, tc3, tc4 = st.columns([0.35, 0.5, 4, 1, 1])
+        else:
+            tc1, tc2, tc3, tc4 = st.columns([0.5, 4, 1, 1])
+
+        if selectable:
+            with tc_select:
+                if selected_task_ids is None:
+                    selected_task_ids = set()
+                is_selected = task["id"] in selected_task_ids
+                new_selected = st.checkbox(
+                    "Select",
+                    value=is_selected,
+                    key=f"select_{task['id']}{key_suffix}",
+                    label_visibility="collapsed",
+                    help="Add to bulk actions",
+                )
+                if new_selected != is_selected:
+                    if new_selected:
+                        selected_task_ids.add(task["id"])
+                    else:
+                        selected_task_ids.discard(task["id"])
+                    st.session_state["selected_task_ids"] = selected_task_ids
+
         with tc1:
             if st.button("Complete", key=f"btn_done_{task['id']}{key_suffix}", help="Mark Complete"):
                 toggle_task_status(task['id'], "Done")
@@ -2587,9 +2668,101 @@ def main():
                 active_tasks = [t for t in active_tasks if t.get("context", "General") == filter_tasks_context]
             if filter_tasks_cadence != "All":
                 active_tasks = [t for t in active_tasks if t.get("cadence", "One-Off") == filter_tasks_cadence]
+
+            active_task_ids = {t["id"] for t in active_tasks}
+            selected_task_ids = st.session_state.get("selected_task_ids")
+            if not isinstance(selected_task_ids, set):
+                selected_task_ids = set(selected_task_ids or [])
+            selected_task_ids &= active_task_ids
+            st.session_state["selected_task_ids"] = selected_task_ids
+
             if not active_tasks:
                 st.info("No active missions. Good job... or get to work!")
             else:
+                with st.expander("🛠 Bulk actions for selected missions", expanded=len(selected_task_ids) > 0):
+                    st.caption(f"{len(selected_task_ids)} mission(s) selected.")
+                    action_cols = st.columns([1, 1, 1])
+                    with action_cols[0]:
+                        if st.button("Select all in view", key="select_all_active_tasks"):
+                            selected_task_ids.update(active_task_ids)
+                            st.session_state["selected_task_ids"] = selected_task_ids
+                            st.rerun()
+                    with action_cols[1]:
+                        if st.button("Clear selection", key="clear_selected_tasks"):
+                            st.session_state["selected_task_ids"] = set()
+                            st.rerun()
+                    with action_cols[2]:
+                        if st.button("Delete selected", key="delete_selected_tasks", disabled=len(selected_task_ids) == 0):
+                            deleted = bulk_delete_tasks(selected_task_ids)
+                            st.session_state["selected_task_ids"] = set()
+                            if deleted:
+                                st.success(f"Deleted {deleted} mission(s).")
+                            else:
+                                st.info("No missions deleted.")
+                            st.rerun()
+
+                    with st.form("bulk_task_update_form"):
+                        due_action = st.radio(
+                            "Due date change",
+                            ["No change", "Set date", "Clear due date"],
+                            index=0,
+                            horizontal=True,
+                            key="bulk_due_action",
+                        )
+                        bulk_due_date = None
+                        if due_action == "Set date":
+                            bulk_due_date = st.date_input("New due date", value=datetime.date.today(), key="bulk_due_date")
+                        priority_choice = st.selectbox(
+                            "Priority",
+                            ["No change", "High", "Medium", "Low"],
+                            index=0,
+                            key="bulk_priority",
+                        )
+                        goal_choice = st.selectbox(
+                            "Goal",
+                            ["No change"] + active_goals,
+                            index=0,
+                            key="bulk_goal",
+                        )
+                        context_choice = st.selectbox(
+                            "Context",
+                            ["No change", "Work", "Personal", "Health", "Creativity", "Admin"],
+                            index=0,
+                            key="bulk_context",
+                        )
+                        cadence_choice = st.selectbox(
+                            "Cadence",
+                            ["No change", "One-Off", "Daily", "3x/Week", "Weekly"],
+                            index=0,
+                            key="bulk_cadence",
+                        )
+                        if st.form_submit_button("Apply to selected"):
+                            selected_ids = st.session_state.get("selected_task_ids", set())
+                            if not isinstance(selected_ids, set):
+                                selected_ids = set(selected_ids or [])
+                                st.session_state["selected_task_ids"] = selected_ids
+                            if not selected_ids:
+                                st.error("Select at least one mission first.")
+                            else:
+                                due_value = NO_DUE_UPDATE
+                                if due_action == "Set date":
+                                    due_value = bulk_due_date
+                                elif due_action == "Clear due date":
+                                    due_value = None
+                                updates = bulk_update_tasks(
+                                    selected_ids,
+                                    goal=None if goal_choice == "No change" else goal_choice,
+                                    priority=None if priority_choice == "No change" else priority_choice,
+                                    due_date=due_value,
+                                    context=None if context_choice == "No change" else context_choice,
+                                    cadence=None if cadence_choice == "No change" else cadence_choice,
+                                )
+                                if updates:
+                                    st.success(f"Updated {updates} mission(s).")
+                                    st.rerun()
+                                else:
+                                    st.info("No updates applied.")
+
                 if task_view_mode == "Group by due date & goal":
                     bucket_order = ["Overdue", "Today", "Tomorrow", "This Week", "Next Week", "Later", "No Date"]
                     grouped = bucket_tasks_by_due_and_goal(active_tasks)
@@ -2602,12 +2775,18 @@ def main():
                         for goal in sorted(goal_map.keys()):
                             st.markdown(f"**{goal}**")
                             for task in goal_map[goal]:
-                                render_task_row(task, key_suffix=f"_{bucket}_{goal}", goals=active_goals)
+                                render_task_row(
+                                    task,
+                                    key_suffix=f"_{bucket}_{goal}",
+                                    goals=active_goals,
+                                    selectable=True,
+                                    selected_task_ids=selected_task_ids,
+                                )
                         st.divider()
                 else:
                     active_tasks.sort(key=task_sort_key)
                     for task in active_tasks:
-                        render_task_row(task, goals=active_goals)
+                        render_task_row(task, goals=active_goals, selectable=True, selected_task_ids=selected_task_ids)
 
         # COMPLETED TASKS
         with t_tab_done:
