@@ -3,6 +3,8 @@ import datetime
 import json
 import time
 import uuid
+import csv
+import io
 from typing import Dict, List, Any, Tuple, Optional
 import pandas as pd
 import plotly.express as px
@@ -128,6 +130,11 @@ PRIORITY_MAP = {
     "Low": "🔵"
 }
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+MISSION_CSV_TEMPLATE = """due_date,title,description,goal,priority,xp,context,cadence
+2025-12-11,Create two QR codes: Tickets + VIP add-on.,Create two QR codes: Tickets + VIP add-on.,General,Medium,50,Work,One-Off
+2025-12-11,Set autoresponder email asking for guest name/email after purchase.,Set autoresponder email asking for guest name/email after purchase.,General,Medium,50,Work,One-Off
+2025-12-11,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,Load your 40-list into tracker; segment A(10)/B(20)/C(10).,General,Medium,50,Work,One-Off
+"""
 
 def get_active_goals(data: Dict[str, Any]) -> List[str]:
     """Return non-archived goals in stored order."""
@@ -1214,6 +1221,115 @@ def format_due_label(due_date: Optional[datetime.date]) -> str:
     if due_date == today + datetime.timedelta(days=1):
         return "Due: Tomorrow"
     return f"Due: {due_date.strftime('%b %d')}"
+
+def parse_import_due_date(raw: str) -> Optional[datetime.date]:
+    """Parse common date formats used in imports."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.date.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def normalize_priority(raw: str) -> str:
+    """Normalize priority to High/Medium/Low."""
+    if not raw:
+        return "Medium"
+    val = raw.strip().lower()
+    if val.startswith("h"):
+        return "High"
+    if val.startswith("l"):
+        return "Low"
+    return "Medium"
+
+
+def normalize_cadence(raw: str) -> str:
+    """Normalize cadence to supported values."""
+    allowed = {"one-off", "daily", "3x/week", "weekly"}
+    if not raw:
+        return "One-Off"
+    val = raw.strip().lower()
+    if val not in allowed:
+        return "One-Off"
+    mapping = {
+        "one-off": "One-Off",
+        "daily": "Daily",
+        "3x/week": "3x/Week",
+        "weekly": "Weekly",
+    }
+    return mapping.get(val, "One-Off")
+
+
+def normalize_context(raw: str) -> str:
+    """Normalize context to supported values."""
+    allowed = {"work", "personal", "health", "creativity", "admin"}
+    if not raw:
+        return "General"
+    val = raw.strip().lower()
+    if val not in allowed:
+        return "General"
+    return val.capitalize()
+
+
+def parse_csv_missions(csv_text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Parse missions from CSV text.
+    Expected headers: due_date, title, description, goal, priority, xp, context, cadence
+    Returns (missions, errors)
+    """
+    missions: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    reader = csv.DictReader(io.StringIO(csv_text))
+
+    expected_headers = ["due_date", "title", "description", "goal", "priority", "xp", "context", "cadence"]
+    if not reader.fieldnames:
+        errors.append("CSV is missing headers. Expected: " + ", ".join(expected_headers))
+        return missions, errors
+    missing = [h for h in ["title"] if h not in reader.fieldnames]
+    if missing:
+        errors.append("Missing required column(s): " + ", ".join(missing))
+        return missions, errors
+
+    for idx, row in enumerate(reader, start=2):  # start=2 to account for header row
+        title = (row.get("title") or "").strip()
+        if not title:
+            errors.append(f"Row {idx}: title is required.")
+            continue
+        description = (row.get("description") or "").strip()
+        goal = (row.get("goal") or "General").strip() or "General"
+        priority = normalize_priority(row.get("priority", "Medium"))
+        cadence = normalize_cadence(row.get("cadence", "One-Off"))
+        context = normalize_context(row.get("context", "General"))
+        due_date = parse_import_due_date(row.get("due_date", ""))
+
+        xp_raw = (row.get("xp") or "").strip()
+        try:
+            xp_val = int(float(xp_raw)) if xp_raw else 50
+        except ValueError:
+            xp_val = 50
+        xp_val = max(5, min(300, xp_val))
+
+        missions.append({
+            "title": title,
+            "description": description,
+            "goal": goal,
+            "priority": priority,
+            "cadence": cadence,
+            "context": context,
+            "xp": xp_val,
+            "due_date": due_date,
+        })
+
+    return missions, errors
 
 
 def add_task(title, desc, xp, goal, priority, due_date, context="General", cadence="One-Off"):
@@ -2315,6 +2431,74 @@ def main():
                     st.rerun()
                 else:
                     st.info("Select at least one mission to add.")
+
+        st.divider()
+
+        # CSV Importer
+        with st.expander("📥 Import missions from CSV"):
+            st.markdown(
+                "Upload or paste a CSV with headers: `due_date,title,description,goal,priority,xp,context,cadence` "
+                "(dates accepted as YYYY-MM-DD or MM/DD/YYYY). Missing fields fall back to sensible defaults."
+            )
+            st.download_button(
+                label="Download CSV template",
+                data=MISSION_CSV_TEMPLATE,
+                file_name="missions_template.csv",
+                mime="text/csv",
+                key="download_mission_template",
+            )
+
+            uploaded_csv = st.file_uploader("Upload CSV file", type=["csv"], key="task_csv_upload")
+            pasted_csv = st.text_area("Or paste CSV content", height=120, key="task_csv_paste")
+
+            if st.button("Parse CSV", key="parse_task_csv"):
+                csv_text = ""
+                if uploaded_csv:
+                    try:
+                        csv_text = uploaded_csv.getvalue().decode("utf-8")
+                    except Exception:
+                        st.error("Could not read the uploaded file. Please ensure it is UTF-8 encoded.")
+                elif pasted_csv.strip():
+                    csv_text = pasted_csv
+                else:
+                    st.error("Provide a CSV file or paste CSV content first.")
+
+                if csv_text:
+                    missions, errors = parse_csv_missions(csv_text)
+                    st.session_state["task_import_preview"] = {"missions": missions, "errors": errors}
+                    if errors:
+                        st.warning("Parsed with issues. See errors below.")
+                    else:
+                        st.success(f"Parsed {len(missions)} mission(s). Review and import below.")
+
+            preview_state = st.session_state.get("task_import_preview", {"missions": [], "errors": []})
+            preview_missions = preview_state.get("missions", [])
+            preview_errors = preview_state.get("errors", [])
+
+            if preview_errors:
+                st.error("Errors:\n- " + "\n- ".join(preview_errors))
+
+            if preview_missions:
+                preview_rows = []
+                for m in preview_missions:
+                    preview_rows.append({
+                        "title": m["title"],
+                        "due_date": m["due_date"].isoformat() if m["due_date"] else "",
+                        "goal": m["goal"],
+                        "priority": m["priority"],
+                        "xp": m["xp"],
+                        "context": m["context"],
+                        "cadence": m["cadence"],
+                    })
+                st.dataframe(pd.DataFrame(preview_rows))
+
+                if not preview_errors:
+                    if st.button(f"Import {len(preview_missions)} missions", key="import_task_csv"):
+                        for m in preview_missions:
+                            add_task(m["title"], m["description"], m["xp"], m["goal"], m["priority"], m["due_date"], m.get("context", "General"), m.get("cadence", "One-Off"))
+                        st.session_state.pop("task_import_preview", None)
+                        st.success(f"Imported {len(preview_missions)} mission(s).")
+                        st.rerun()
 
         # Filters and Tabs for Tasks
         filter_tasks_context = st.selectbox("Filter missions by context", options=["All", "Work", "Personal", "Health", "Creativity", "Admin"], index=0)
