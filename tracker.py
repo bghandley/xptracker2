@@ -5,6 +5,7 @@ import time
 import uuid
 import csv
 import io
+import random
 from typing import Dict, List, Any, Tuple, Optional, Iterable, Set
 import pandas as pd
 import plotly.express as px
@@ -140,6 +141,14 @@ MISSION_CSV_TEMPLATE_DEFAULT = """due_date,title,description,goal,priority,xp,co
 2025-12-11,Post soft teaser on socials: date + BOBAF concept (no link yet).,Post soft teaser on socials: date + BOBAF concept (no link yet).,General,Medium,50,Work,One-Off,"social,teaser"
 """
 
+CELEBRATION_MESSAGES = [
+    "Momentum engaged. Keep swinging.",
+    "Another brick placed. Fortress mode.",
+    "XP bag secured. Onward.",
+    "You shipped. Future-you is clapping.",
+]
+STREAK_MILESTONES = {3, 5, 7, 10, 20, 30}
+
 
 def get_mission_csv_template() -> str:
     """Return the mission CSV template, reading from file if available."""
@@ -161,6 +170,41 @@ def _get_app_url() -> str:
         app_url = st.secrets.get('app', {}).get('url')
     app_url = app_url or os.environ.get('APP_URL') or 'http://localhost:8501'
     return app_url.rstrip('/')
+
+
+def enqueue_celebration(event_type: str, payload: Dict[str, Any]):
+    """Queue a celebration event to render on next rerun."""
+    queue = st.session_state.get("celebration_events", [])
+    queue.append({"type": event_type, "payload": payload})
+    st.session_state["celebration_events"] = queue
+
+
+def render_queued_celebrations():
+    """Display any queued celebrations (balloons/snow + toasts)."""
+    queue = st.session_state.pop("celebration_events", [])
+    if not queue:
+        return
+
+    for event in queue:
+        payload = event.get("payload", {})
+        kind = event.get("type")
+        message = random.choice(CELEBRATION_MESSAGES)
+
+        if kind == "task_complete":
+            title = payload.get("title", "Mission")
+            st.balloons()
+            st.success(f"Mission complete: {title}")
+            st.info(message)
+        elif kind == "habit_complete":
+            habit = payload.get("habit", "Habit")
+            streak = payload.get("streak", 0)
+            milestone = payload.get("milestone", False)
+            st.balloons()
+            st.success(f"Upgrade logged: {habit} (Streak {streak})")
+            st.info(message)
+            if milestone:
+                st.snow()
+                st.success(f"Streak milestone unlocked: {streak} days!")
 
 
 def send_verification_email(user_id: str, email: str, storage) -> bool:
@@ -1166,6 +1210,14 @@ def toggle_habit(habit_name: str, date_str: str):
                 
                 # Send notification (quietly - won't fail if email not set)
                 notifications.notify_habit_completed(user_id, habit_name, earned_xp, current_streak)
+                enqueue_celebration(
+                    "habit_complete",
+                    {
+                        "habit": habit_name,
+                        "streak": current_streak,
+                        "milestone": current_streak in STREAK_MILESTONES,
+                    },
+                )
         except Exception as e:
             # Silently fail - don't interrupt user experience
             pass
@@ -1519,6 +1571,7 @@ def render_task_row(
 
         with tc1:
             if st.button("Complete", key=f"btn_done_{task['id']}{key_suffix}", help="Mark Complete"):
+                enqueue_celebration("task_complete", {"title": task.get("title", "Mission"), "xp": task.get("xp", 0)})
                 toggle_task_status(task['id'], "Done")
                 st.rerun()
         with tc2:
@@ -2237,6 +2290,9 @@ def main():
 
     # --- Guided setup for first goal/habit ---
     render_guided_setup()
+
+    # Surface any queued celebrations (missions completed, streak milestones, etc.)
+    render_queued_celebrations()
 
     # --- Tabs ---
     tab_habits, tab_tasks, tab_journal, tab_reports, tab_ai_coach, tab_profile, tab_leaderboard, tab_admin, tab_about = st.tabs(["📅 Hero Log", "📜 Mission Deck", "📔 Journal", "📊 Signals", "🧠 AI Coach", "🏅 Profile & Badges", "🏆 Leaderboard", "⚙️ Admin", "ℹ️ About & FAQ"])

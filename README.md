@@ -96,6 +96,7 @@ Visit http://localhost:8501
 - Track streaks
 - Mark complete/incomplete
 - View history
+- Celebrate streak milestones with on-screen effects
 
 ### Tasks (Mission Log)
 - Create one-off tasks
