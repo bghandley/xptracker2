@@ -2339,10 +2339,12 @@ def main():
                 c1, c2, c3, c4 = st.columns([0.5, 3, 1, 1])
                 
                 with c1:
+                    # Include date in key so checkboxes reset when a new day starts
+                    checkbox_key = f"check_{today_str}_{habit_name}"
                     checked = st.checkbox(
                         "Complete", 
                         value=is_completed, 
-                        key=f"check_{habit_name}",
+                        key=checkbox_key,
                         label_visibility="collapsed"
                     )
                     if checked != is_completed:
