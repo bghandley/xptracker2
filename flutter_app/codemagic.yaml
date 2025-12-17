@@ -1,0 +1,43 @@
+workflows:
+  ios_release:
+    name: iOS Release (no codesign)
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+    working_directory: flutter_app
+    scripts:
+      - flutter pub get
+      # Uncomment to run tests if desired
+      # - flutter test
+      - flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/**/*.ipa
+      - build/ios/archive/**/*.xcarchive
+      - build/ios/iphoneos/Runner.app
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+        - ~/.gradle/caches
+
+  android_release:
+    name: Android Release APK
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    working_directory: flutter_app
+    scripts:
+      - flutter pub get
+      # Uncomment to run tests if desired
+      # - flutter test
+      - flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/release/*.aab
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/.gradle/caches
