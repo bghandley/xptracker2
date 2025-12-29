@@ -691,16 +691,20 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
 def get_storage() -> StorageProvider:
     """Factory to get the configured storage provider.
 
-    Prefer `LocalStorage` unless Firebase appears to be configured and available.
-    This avoids unintentionally returning a `FirebaseStorage` instance with no DB
-    (which would ignore local `xp_data*.json` files and make leaderboards empty).
+    Prefer `LocalStorage` unless Firebase appears to be configured and fully initialized.
+    If Firebase is configured but fails to initialize (no DB), fall back to `LocalStorage`.
     """
     try:
         import firebase_admin  # type: ignore
-        # If Streamlit secrets contain firebase config, or credentials file exists, use Firebase
-        if (hasattr(st, "secrets") and st.secrets.get("firebase")) or os.path.exists(os.getenv("FIREBASE_CREDENTIALS", "firebase_credentials.json")):
-            return FirebaseStorage()
+        cfg_present = (hasattr(st, "secrets") and st.secrets.get("firebase")) or os.path.exists(os.getenv("FIREBASE_CREDENTIALS", "firebase_credentials.json"))
+        if cfg_present:
+            fb = FirebaseStorage()
+            # Use Firebase only if DB client was successfully created
+            if getattr(fb, "db", None):
+                return fb
+            else:
+                st.warning("Firebase configured but not usable; falling back to LocalStorage.")
     except Exception:
-        # Either firebase-admin not installed or not configured; fall back to local
+        # firebase-admin not installed or some other import-time error
         pass
     return LocalStorage()

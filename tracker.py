@@ -8,7 +8,10 @@ import io
 import random
 from typing import Dict, List, Any, Tuple, Optional, Iterable, Set
 import pandas as pd
-import plotly.express as px
+try:
+    import plotly.express as px
+except Exception:
+    px = None
 import streamlit.components.v1 as components
 from storage import get_storage, validate_email
 from email_utils import send_email
@@ -1747,15 +1750,28 @@ def export_tasks_to_ics(data: Dict[str, Any]) -> str:
 
 # --- Helper: List existing users ---
 def get_existing_users() -> List[str]:
-    """Scan for existing user data files and return list of user IDs."""
+    """Return list of known user IDs.
+
+    Prefer the configured storage provider's `list_users()` (works for Firebase).
+    If the storage provider cannot list users or returns an empty result, fall
+    back to scanning local `xp_data*.json` files so local deployments still work.
+    """
+    try:
+        storage = get_storage()
+        users = storage.list_users()
+        if users:
+            return sorted(users)
+    except Exception:
+        # If listing via storage fails (e.g. no Firebase permissions), fall back
+        # to local file scan.
+        pass
+
+    # Fallback: scan local files
     import glob
     users = []
-    # Check for default user
     if os.path.exists("xp_data.json"):
         users.append("default")
-    # Check for named users
     for file in glob.glob("xp_data_*.json"):
-        # Extract user ID from filename: xp_data_alice.json -> alice
         user_id = file.replace("xp_data_", "").replace(".json", "")
         users.append(user_id)
     return sorted(users)
