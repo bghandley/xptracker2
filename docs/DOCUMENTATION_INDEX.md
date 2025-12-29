@@ -17,7 +17,7 @@
 - Troubleshooting & tips
 
 ### For Everyone
-👉 **[README.md](README.md)** 
+👉 **[README.md](../README.md)** 
 - Quick start guide
 - Feature summary (including automation 🤖)
 - Architecture overview

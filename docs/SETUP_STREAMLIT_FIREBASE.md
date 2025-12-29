@@ -121,7 +121,7 @@ gemini_api_key = "AIza..."
 [firebase]
 project_id = "your-firebase-project"
 private_key_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+private_key = "<from your service account json (keep the \\n escapes)>"
 client_email = "firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com"
 client_id = "..."
 auth_uri = "https://accounts.google.com/o/oauth2/auth"
@@ -262,7 +262,7 @@ In **⚙️ Admin** panel (when admin accesses), it will auto-detect if Gemini i
 - Data stored in JSON files on Streamlit Cloud filesystem
 - **Pro**: Zero setup, works out of the box
 - **Con**: Data lost if Streamlit Cloud resets (rare but possible); not shared across instances
-- **Files**: `xp_data.json` (default user), `xp_data_[username].json` per user
+- **Files** (generated at runtime; git-ignored): `xp_data.json` (default user), `xp_data_<username>.json` per user
 
 ### FirebaseStorage (Remote)
 
@@ -313,7 +313,7 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # AI coaching uses Gemini; configure `gemini_api_key` in Streamlit Secrets.
         run: python scheduler.py
 ```
 
@@ -386,7 +386,7 @@ from = "your-email@gmail.com"
 [app]
 url = "http://localhost:8501"
 
-openai_api_key = "sk-..."
+# AI coaching uses Gemini; set `gemini_api_key` instead.
 ```
 
 ### 3. Run Locally

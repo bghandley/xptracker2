@@ -38,9 +38,13 @@ wheels/
 .streamlit/secrets.toml
 .streamlit/cache/
 
-# User data (optional; uncomment if you want to keep local test data out of repo)
-# xp_data_*.json
-# xp_data.json
+# Local user/runtime data (never commit)
+xp_data.json
+xp_data_*.json
+notifications_history.json
+
+# Optional local Firebase service account file (alternative to Streamlit secrets)
+firebase_credentials.json
 
 # Environment variables
 .env
