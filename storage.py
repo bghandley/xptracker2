@@ -481,6 +481,19 @@ class FirebaseStorage(StorageProvider):
         doc_ref = self.db.collection("users").document(safe_id)
         return doc_ref.get().exists
 
+    def list_users(self) -> list[str]:
+        """Return a list of user ids known to Firestore.
+
+        Leaderboard and email uniqueness checks rely on this.
+        """
+        if not self.db:
+            return []
+        try:
+            # Fetch only document ids (no fields) to keep reads small.
+            return [doc.id for doc in self.db.collection("users").select([]).stream()]
+        except Exception:
+            return []
+
     def set_user_password(self, user_id: str, password: str) -> None:
         data = self.load_data(user_id)
         if not password:
