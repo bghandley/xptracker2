@@ -216,18 +216,6 @@ class LocalStorage(StorageProvider):
                     users.add(user)
         return list(users)
 
-    def list_users(self) -> list[str]:
-        """List users stored in Firebase (document ids).
-        If Firestore isn't available or permission fails, returns an empty list.
-        """
-        try:
-            if not self.db:
-                return []
-            docs = self.db.collection('users').list_documents()
-            users = [doc.id for doc in docs]
-            return users
-        except Exception:
-            return []
 
     def set_user_password(self, user_id: str, password: str) -> None:
         # Load or create data, then set salted pbkdf2 hash
@@ -701,5 +689,18 @@ def ensure_data_schema(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 def get_storage() -> StorageProvider:
-    """Factory to get the configured storage provider (Firebase only)."""
-    return FirebaseStorage()
+    """Factory to get the configured storage provider.
+
+    Prefer `LocalStorage` unless Firebase appears to be configured and available.
+    This avoids unintentionally returning a `FirebaseStorage` instance with no DB
+    (which would ignore local `xp_data*.json` files and make leaderboards empty).
+    """
+    try:
+        import firebase_admin  # type: ignore
+        # If Streamlit secrets contain firebase config, or credentials file exists, use Firebase
+        if (hasattr(st, "secrets") and st.secrets.get("firebase")) or os.path.exists(os.getenv("FIREBASE_CREDENTIALS", "firebase_credentials.json")):
+            return FirebaseStorage()
+    except Exception:
+        # Either firebase-admin not installed or not configured; fall back to local
+        pass
+    return LocalStorage()
